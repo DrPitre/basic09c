@@ -544,6 +544,10 @@ private:
         Builder.CreateCall(getPrintf(),
                            {Builder.CreateGlobalString(unquote(String->Text))});
     }
+    Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("? ")});
+    Builder.CreateCall(getFflush(),
+                       {ConstantPointerNull::get(PointerType::getUnqual(
+                           Context))});
 
     for (const std::unique_ptr<ASTNode> &Target : Stmt.Children) {
       if (Target->Kind != "Target")
@@ -1968,6 +1972,12 @@ private:
     FunctionType *FT =
         FunctionType::get(i32Ty(), PointerType::getUnqual(Context), true);
     return M->getOrInsertFunction("printf", FT);
+  }
+
+  FunctionCallee getFflush() {
+    FunctionType *FT =
+        FunctionType::get(i32Ty(), PointerType::getUnqual(Context), false);
+    return M->getOrInsertFunction("fflush", FT);
   }
 
   FunctionCallee getScanf() {
