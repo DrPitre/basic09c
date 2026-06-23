@@ -19,7 +19,7 @@
 # FIX: 3
 # FIX-NEXT: 0
 
-# PERCENT: APR: 5%
+# PERCENT: APR: 5 %
 
 # NOOUTPUT: error: --compile requires -o <output>
 

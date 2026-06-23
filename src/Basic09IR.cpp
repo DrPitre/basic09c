@@ -624,10 +624,10 @@ private:
       if (V->getType()->isPointerTy()) {
         Builder.CreateCall(Printf, {Builder.CreateGlobalString("%s"), V});
       } else if (V->getType()->isDoubleTy()) {
-        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%g"), V});
+        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%g "), V});
       } else if (V->getType()->isIntegerTy()) {
         V = Builder.CreateSExtOrTrunc(V, i32Ty());
-        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%d"), V});
+        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%d "), V});
       } else {
         return error(*Child, "PRINT expression has unsupported IR type");
       }
