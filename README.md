@@ -7,33 +7,45 @@ checks, and can lower the supported language subset to LLVM IR.
 The compiler is target-independent. It does not depend on the MC6809 backend,
 OS-9 runtime support, or an emulator.
 
+This project is intentionally maintained outside the LLVM monorepo. It consumes
+LLVM through LLVM's CMake package and links against LLVM as a normal external
+dependency.
+
 ## Build
 
 Point CMake at an LLVM build or install tree that provides `LLVMConfig.cmake`:
 
 ```sh
-cmake -S /Volumes/Lagniappe/basic09c -B /Volumes/Lagniappe/basic09c/build -G Ninja \
-  -DLLVM_DIR=/Volumes/Lagniappe/llvm-project/build/lib/cmake/llvm \
+cmake -S . -B build -G Ninja \
+  -DLLVM_DIR=/path/to/llvm/lib/cmake/llvm \
   -DCMAKE_BUILD_TYPE=Release
 
-ninja -C /Volumes/Lagniappe/basic09c/build basic09c
+ninja -C build basic09c
+```
+
+For example, with Homebrew LLVM on macOS:
+
+```sh
+cmake -S . -B build -G Ninja \
+  -DLLVM_DIR="$(brew --prefix llvm)/lib/cmake/llvm" \
+  -DCMAKE_BUILD_TYPE=Release
 ```
 
 The compiler is written to:
 
 ```sh
-/Volumes/Lagniappe/basic09c/build/bin/basic09c
+build/bin/basic09c
 ```
 
 ## Usage
 
 ```sh
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --dump-tokens path/to/program.b09
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --dump-ast path/to/program.b09
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --syntax-only path/to/program.b09
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --analyze-only path/to/program.b09
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --dump-symbols path/to/program.b09
-/Volumes/Lagniappe/basic09c/build/bin/basic09c --emit-llvm path/to/program.b09
+build/bin/basic09c --dump-tokens path/to/program.b09
+build/bin/basic09c --dump-ast path/to/program.b09
+build/bin/basic09c --syntax-only path/to/program.b09
+build/bin/basic09c --analyze-only path/to/program.b09
+build/bin/basic09c --dump-symbols path/to/program.b09
+build/bin/basic09c --emit-llvm path/to/program.b09
 ```
 
 ## Tests
@@ -41,7 +53,7 @@ The compiler is written to:
 Run the standalone test suite with:
 
 ```sh
-ninja -C /Volumes/Lagniappe/basic09c/build check-basic09c
+ninja -C build check-basic09c
 ```
 
 Most tests only need `basic09c` plus LLVM test utilities such as `FileCheck`,
@@ -52,7 +64,7 @@ CoCo 3 ROM path are available:
 
 ```sh
 MAME_ROM_PATH=/path/to/mame/roms \
-  ninja -C /Volumes/Lagniappe/basic09c/build check-basic09c
+  ninja -C build check-basic09c
 ```
 
 ## Source Layout
