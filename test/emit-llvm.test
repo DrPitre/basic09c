@@ -1,0 +1,213 @@
+# RUN: split-file %s %t
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/hello.b09 | FileCheck %s --check-prefix=IR
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/if.b09 | FileCheck %s --check-prefix=IF
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/for.b09 | FileCheck %s --check-prefix=FOR
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/for-step.b09 | FileCheck %s --check-prefix=STEP
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/while.b09 | FileCheck %s --check-prefix=WHILE
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/repeat.b09 | FileCheck %s --check-prefix=REPEAT
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/exit.b09 | FileCheck %s --check-prefix=EXIT
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/tab.b09 | FileCheck %s --check-prefix=TAB
+# RUN: not basic09c --emit-llvm %t/unsupported.b09 2>&1 | FileCheck %s --check-prefix=ERR
+
+# IR: target triple = "x86_64-apple-macosx14.0.0"
+# IR: define i32 @hello()
+# IR: %X = alloca i16
+# IR: store i16 42, ptr %X
+# IR: load i16, ptr %X
+# IR: sext i16
+# IR: call i32 (ptr, ...) @printf(ptr
+# IR: declare i32 @printf(ptr, ...)
+
+# IF: define i32 @branchy()
+# IF: icmp sgt i16
+# IF: icmp ne i16
+# IF: br i1 {{.*}}, label %if.then, label %if.else
+# IF: if.then:
+# IF: store i16 2, ptr %X
+# IF: br label %if.end
+# IF: if.else:
+# IF: store i16 3, ptr %X
+# IF: br label %if.end
+# IF: if.end:
+# IF: store i16 4, ptr %X
+# IF: ret i32 0
+
+# FOR: define i32 @count()
+# FOR: store i16 1, ptr %I
+# FOR: store i16 3, ptr %I.end
+# FOR: store i16 1, ptr %I.step
+# FOR: br label %for.cond
+# FOR: for.cond:
+# FOR: load i16, ptr %I
+# FOR: load i16, ptr %I.end
+# FOR: load i16, ptr %I.step
+# FOR: icmp slt i16 {{.*}}, 0
+# FOR: icmp sle i16
+# FOR: icmp sge i16
+# FOR: select i1
+# FOR: br i1 {{.*}}, label %for.body, label %for.end
+# FOR: for.body:
+# FOR: load i16, ptr %TOTAL
+# FOR: load i16, ptr %I
+# FOR: add i16
+# FOR: store i16 {{.*}}, ptr %TOTAL
+# FOR: br label %for.inc
+# FOR: for.inc:
+# FOR: load i16, ptr %I
+# FOR: load i16, ptr %I.step
+# FOR: add i16
+# FOR: store i16 {{.*}}, ptr %I
+# FOR: br label %for.cond
+# FOR: for.end:
+# FOR: ret i32 0
+
+# STEP: define i32 @count_step()
+# STEP: store i16 1, ptr %I
+# STEP: store i16 5, ptr %I.end
+# STEP: store i16 2, ptr %I.step
+# STEP: for.cond:
+# STEP: load i16, ptr %I.step
+# STEP: icmp slt i16 {{.*}}, 0
+# STEP: icmp sle i16
+# STEP: icmp sge i16
+# STEP: select i1
+# STEP: br i1 {{.*}}, label %for.body, label %for.end
+# STEP: for.inc:
+# STEP: load i16, ptr %I.step
+# STEP: add i16
+# STEP: store i16 {{.*}}, ptr %I
+# STEP: br label %for.cond
+# STEP: for.end:
+# STEP: ret i32 0
+
+# WHILE: define i32 @count_down()
+# WHILE: store i16 3, ptr %TOTAL
+# WHILE: br label %while.cond
+# WHILE: while.cond:
+# WHILE: load i16, ptr %TOTAL
+# WHILE: icmp sgt i16
+# WHILE: icmp ne i16
+# WHILE: br i1 {{.*}}, label %while.body, label %while.end
+# WHILE: while.body:
+# WHILE: load i16, ptr %TOTAL
+# WHILE: sub i16
+# WHILE: store i16 {{.*}}, ptr %TOTAL
+# WHILE: br label %while.cond
+# WHILE: while.end:
+# WHILE: ret i32 0
+
+# REPEAT: define i32 @count_up()
+# REPEAT: store i16 0, ptr %TOTAL
+# REPEAT: br label %repeat.body
+# REPEAT: repeat.body:
+# REPEAT: load i16, ptr %TOTAL
+# REPEAT: add i16
+# REPEAT: store i16 {{.*}}, ptr %TOTAL
+# REPEAT: br label %repeat.cond
+# REPEAT: repeat.cond:
+# REPEAT: load i16, ptr %TOTAL
+# REPEAT: icmp eq i16
+# REPEAT: icmp ne i16
+# REPEAT: br i1 {{.*}}, label %repeat.end, label %repeat.body
+# REPEAT: repeat.end:
+# REPEAT: ret i32 0
+
+# EXIT: define i32 @leave_early()
+# EXIT: while.cond:
+# EXIT: br i1 {{.*}}, label %while.body, label %while.end
+# EXIT: while.body:
+# EXIT: br i1 {{.*}}, label %exitif.then, label %exitif.end
+# EXIT: while.end:
+# EXIT: br label %loop.body
+# EXIT: exitif.then:
+# EXIT: br label %while.end
+# EXIT: exitif.end:
+# EXIT: br label %while.cond
+# EXIT: loop.body:
+# EXIT: br label %loop.end
+# EXIT: loop.end:
+# EXIT: ret i32 0
+
+# TAB: define i32 @tab_demo()
+# TAB: call i32 (ptr, ...) @printf(ptr {{.*}}, i32 3, ptr
+# TAB: call i32 (ptr, ...) @printf(ptr
+# TAB: ret i32 0
+
+# ERR: error: line 2: statement is not supported by LLVM IR lowering yet: Poke
+
+#--- hello.b09
+PROCEDURE hello
+DIM x:INTEGER
+x:=40+2
+PRINT "X=",x
+END
+
+#--- if.b09
+PROCEDURE branchy
+DIM x:INTEGER
+x:=1
+IF x>0 THEN
+x:=2
+ELSE
+x:=3
+ENDIF
+x:=4
+END
+
+#--- for.b09
+PROCEDURE count
+DIM i,total:INTEGER
+FOR i:=1 TO 3
+total:=total+i
+NEXT i
+END
+
+#--- unsupported.b09
+PROCEDURE unsupported
+POKE 1,2
+END
+
+#--- for-step.b09
+PROCEDURE count_step
+DIM i:INTEGER
+FOR i:=1 TO 5 STEP 2
+PRINT i
+NEXT i
+END
+
+#--- tab.b09
+PROCEDURE tab_demo
+PRINT TAB(3);"X"
+END
+
+#--- while.b09
+PROCEDURE count_down
+DIM total:INTEGER
+total:=3
+WHILE total>0 DO
+total:=total-1
+ENDWHILE
+END
+
+#--- repeat.b09
+PROCEDURE count_up
+DIM total:INTEGER
+REPEAT
+total:=total+1
+UNTIL total=3
+END
+
+#--- exit.b09
+PROCEDURE leave_early
+DIM total:INTEGER
+total:=3
+WHILE total>0 DO
+EXITIF total=2 THEN
+PRINT "TWO"
+ENDEXIT
+total:=total-1
+ENDWHILE
+LOOP
+EXIT
+ENDLOOP
+END

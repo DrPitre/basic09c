@@ -1,0 +1,144 @@
+PROCEDURE loanplanner
+DIM principal,apr,extra:REAL
+DIM years,months:INTEGER
+DIM rate,payment,totalPaid,totalInterest:REAL
+
+PRINT "BASIC09 LOAN PLANNER"
+PRINT "--------------------"
+PRINT "Estimate a fixed-rate loan payment and payoff schedule."
+PRINT
+
+RUN readInputs(principal,apr,years,extra)
+
+months:=years*12
+rate:=apr/1200
+RUN calcPayment(principal,rate,months,payment)
+RUN printSummary(principal,apr,years,extra,payment)
+RUN printSchedule(principal,rate,payment,extra,totalPaid,totalInterest)
+
+PRINT
+PRINT "Total paid: ";FIX(totalPaid*100)/100
+PRINT "Interest paid: ";FIX(totalInterest*100)/100
+PRINT "Done."
+END
+
+PROCEDURE readInputs
+PARAM principal,apr:REAL
+PARAM years:INTEGER
+PARAM extra:REAL
+
+LOOP
+PRINT "Loan amount: ";
+INPUT principal
+EXITIF principal>0 THEN
+ENDEXIT
+PRINT "Please enter an amount greater than zero."
+ENDLOOP
+
+LOOP
+PRINT "Annual interest rate, percent: ";
+INPUT apr
+EXITIF apr>=0 THEN
+ENDEXIT
+PRINT "Please enter a non-negative rate."
+ENDLOOP
+
+LOOP
+PRINT "Term in years: ";
+INPUT years
+EXITIF years>0 THEN
+ENDEXIT
+PRINT "Please enter at least one year."
+ENDLOOP
+
+LOOP
+PRINT "Extra principal per month: ";
+INPUT extra
+EXITIF extra>=0 THEN
+ENDEXIT
+PRINT "Please enter zero or a positive amount."
+ENDLOOP
+
+END
+
+PROCEDURE calcPayment
+PARAM principal,rate:REAL
+PARAM months:INTEGER
+PARAM payment:REAL
+
+IF rate=0 THEN
+payment:=principal/months
+ELSE
+payment:=principal*rate/(1-(1+rate)^(-months))
+ENDIF
+END
+
+PROCEDURE printSummary
+PARAM principal,apr:REAL
+PARAM years:INTEGER
+PARAM extra,payment:REAL
+
+PRINT
+PRINT "Loan summary"
+PRINT "------------"
+PRINT "Principal: ";FIX(principal*100)/100
+PRINT "APR: ";apr;"%"
+PRINT "Term: ";years;" years"
+PRINT "Required monthly payment: ";FIX(payment*100)/100
+PRINT "Extra monthly principal: ";FIX(extra*100)/100
+PRINT
+END
+
+PROCEDURE printSchedule
+PARAM principal,rate,payment,extra:REAL
+PARAM totalPaid,totalInterest:REAL
+DIM balance,interest,principalPaid,paid:REAL
+DIM month,year:INTEGER
+
+balance:=principal
+totalPaid:=0
+totalInterest:=0
+month:=0
+year:=0
+
+PRINT "Year  Balance        Interest paid"
+PRINT "----  -------------  -------------"
+
+LOOP
+EXITIF balance<=.005 THEN
+ENDEXIT
+month:=month+1
+interest:=balance*rate
+principalPaid:=payment+extra-interest
+
+IF principalPaid<=0 THEN
+PRINT "Payment is too small to reduce the balance."
+PRINT "Increase the payment or extra principal."
+RETURN
+ENDIF
+
+IF principalPaid>balance THEN
+principalPaid:=balance
+paid:=balance+interest
+ELSE
+paid:=payment+extra
+ENDIF
+
+balance:=balance-principalPaid
+totalPaid:=totalPaid+paid
+totalInterest:=totalInterest+interest
+
+IF MOD(month,12)=0 OR balance<=.005 THEN
+year:=INT((month+11)/12)
+PRINT year;"     ";FIX(balance*100)/100;"        ";FIX(totalInterest*100)/100
+ENDIF
+
+EXITIF month>=600 THEN
+PRINT "Stopped after 600 months."
+ENDEXIT
+ENDLOOP
+
+PRINT
+PRINT "Payoff months: ";month
+PRINT "Payoff years: ";FIX((month/12)*100)/100
+END

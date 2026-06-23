@@ -1,0 +1,380 @@
+PROCEDURE stresshonker
+DIM passed,failed,checksum:INTEGER
+
+passed:=0
+failed:=0
+checksum:=0
+
+PRINT "BASIC09 compiler stress honker"
+PRINT "------------------------------"
+
+RUN testNumbers(passed,failed,checksum)
+RUN testStrings(passed,failed,checksum)
+RUN testDataRead(passed,failed,checksum)
+RUN testControlFlow(passed,failed,checksum)
+RUN testRecords(passed,failed,checksum)
+RUN testArrays(passed,failed,checksum)
+RUN testProcedures(passed,failed,checksum)
+RUN testGosubRouter(passed,failed,checksum)
+RUN testMathLibrary(passed,failed,checksum)
+RUN testPrintFormatting(passed,failed,checksum)
+
+RUN assertInt("final checksum",checksum,1216,passed,failed)
+
+PRINT "------------------------------"
+PRINT "Passed: ";passed
+PRINT "Failed: ";failed
+END
+
+PROCEDURE pass
+PARAM name$:STRING
+PARAM passed:INTEGER
+PRINT "PASS ";name$
+passed:=passed+1
+END
+
+PROCEDURE fail
+PARAM name$:STRING
+PARAM got:REAL
+PARAM failed:INTEGER
+PRINT "FAIL ";name$;" got ";got
+failed:=failed+1
+END
+
+PROCEDURE assertInt
+PARAM name$:STRING
+PARAM actual,expected:INTEGER
+PARAM passed,failed:INTEGER
+IF actual=expected THEN
+RUN pass(name$,passed)
+ELSE
+RUN fail(name$,actual,failed)
+ENDIF
+END
+
+PROCEDURE assertReal
+PARAM name$:STRING
+PARAM actual,expected,tolerance:REAL
+PARAM passed,failed:INTEGER
+IF ABS(actual-expected)<=tolerance THEN
+RUN pass(name$,passed)
+ELSE
+RUN fail(name$,actual,failed)
+ENDIF
+END
+
+PROCEDURE assertString
+PARAM name$:STRING
+PARAM actual$,expected$:STRING
+PARAM passed,failed:INTEGER
+IF actual$=expected$ THEN
+RUN pass(name$,passed)
+ELSE
+PRINT "FAIL ";name$;" got ";actual$
+failed:=failed+1
+ENDIF
+END
+
+PROCEDURE testNumbers
+PARAM passed,failed,checksum:INTEGER
+DIM n,total:INTEGER
+DIM r:REAL
+
+n:=2+3*4-5
+RUN assertInt("numeric precedence",n,9,passed,failed)
+
+n:=MOD(55,6)+LAND(12,10)+LOR(8,2)+LXOR(7,3)
+RUN assertInt("mod and bitwise",n,1+8+10+4,passed,failed)
+
+r:=EXP(LOG(9.5))+SIN(0)+COS(0)
+RUN assertReal("exp log trig",r,10.5,.0001,passed,failed)
+
+total:=0
+FOR n:=1 TO 9 STEP 2
+total:=total+n
+NEXT n
+RUN assertInt("for step accumulation",total,25,passed,failed)
+
+total:=0
+FOR n:=5 TO 1 STEP -1
+total:=total+n
+NEXT n
+RUN assertInt("for negative step",total,15,passed,failed)
+
+checksum:=checksum+101
+
+END
+
+PROCEDURE testStrings
+PARAM passed,failed,checksum:INTEGER
+DIM s,t,u:STRING[80]
+DIM n:INTEGER
+
+s:="compiler"
+t:="stress"
+u:=LEFT$(s,4)+"-"+RIGHT$(t,3)+"-"+CHR$(65)
+RUN assertString("string concat slices",u,"comp-ess-A",passed,failed)
+
+n:=ASC("Z")+LEN(u)+SUBSTR("ess",u)
+RUN assertInt("asc len substr",n,90+10+6,passed,failed)
+
+u:=MID$("0123456789",4,3)
+RUN assertString("mid literal",u,"345",passed,failed)
+
+IF "alpha"<"omega" AND "same"="same" AND "zulu">"beta" THEN
+RUN pass("string comparisons",passed)
+ELSE
+RUN fail("string comparisons",0,failed)
+ENDIF
+
+u:=""
+RUN assertString("empty string",u,"",passed,failed)
+
+u:="123456789012"
+RUN assertInt("exact length string",LEN(u),12,passed,failed)
+
+u:=STR$(VAL("42.5"))
+RUN assertString("str val roundtrip",LEFT$(u,4),"42.5",passed,failed)
+
+checksum:=checksum+103
+
+END
+
+PROCEDURE testDataRead
+PARAM passed,failed,checksum:INTEGER
+DIM a,b,c,total:INTEGER
+
+DATA 7,11,13
+DATA 17,19
+READ a,b
+READ c
+total:=a*100+b*10+c
+RUN assertInt("data read sequence",total,823,passed,failed)
+
+READ b
+READ c
+total:=b+c
+RUN assertInt("data read across lines",total,36,passed,failed)
+
+RESTORE
+READ a
+RUN assertInt("restore rereads first data",a,7,passed,failed)
+
+checksum:=checksum+107
+
+END
+
+PROCEDURE testControlFlow
+PARAM passed,failed,checksum:INTEGER
+DIM i,total,branch:INTEGER
+
+i:=0
+total:=0
+REPEAT
+i:=i+1
+total:=total+i
+UNTIL i=5
+RUN assertInt("repeat until",total,15,passed,failed)
+
+i:=0
+LOOP
+i:=i+1
+EXITIF i>=4 THEN
+ENDEXIT
+ENDLOOP
+RUN assertInt("loop exitif",i,4,passed,failed)
+
+branch:=2
+ON branch GOTO 100,110,120
+100 RUN fail("on goto branch",1,failed)
+GOTO 130
+110 RUN pass("on goto branch",passed)
+GOTO 130
+120 RUN fail("on goto branch",3,failed)
+130 i:=i
+
+branch:=3
+ON branch GOTO 140,150,160
+140 RUN fail("nested on goto branch",1,failed)
+GOTO 170
+150 RUN fail("nested on goto branch",2,failed)
+GOTO 170
+160 RUN pass("nested on goto branch",passed)
+170 i:=i
+
+checksum:=checksum+109
+
+END
+
+PROCEDURE testRecords
+TYPE pair=left:INTEGER; right:INTEGER
+TYPE contact=sectx,secty,energy:REAL
+PARAM passed,failed,checksum:INTEGER
+DIM p:pair
+DIM k(2):contact
+DIM n:INTEGER
+
+p.left:=21
+p.right:=34
+n:=p.left+p.right
+RUN assertInt("scalar record fields",n,55,passed,failed)
+
+k(1).sectx:=3
+k(1).secty:=4
+k(1).energy:=125
+k(2).sectx:=5
+k(2).secty:=6
+k(2).energy:=250
+n:=k(1).sectx+k(1).secty+k(2).energy
+RUN assertInt("record array fields",n,257,passed,failed)
+
+k(2).energy:=k(1).energy+k(2).energy
+n:=k(2).energy
+RUN assertInt("record field expression assign",n,375,passed,failed)
+
+checksum:=checksum+113
+
+END
+
+PROCEDURE testArrays
+PARAM passed,failed,checksum:INTEGER
+DIM grid(3,3),row,col,total:INTEGER
+DIM names(2):STRING[12]
+
+total:=0
+FOR row:=1 TO 3
+FOR col:=1 TO 3
+grid(row,col):=row*10+col
+total:=total+grid(row,col)
+NEXT col
+NEXT row
+RUN assertInt("two dimensional array",total,198,passed,failed)
+
+names(1):="red"
+names(2):="blue"
+RUN assertString("string array element",names(1)+"/"+names(2),"red/blue",passed,failed)
+
+grid(2,2):=grid(1,1)+grid(3,3)
+RUN assertInt("array expression assignment",grid(2,2),44,passed,failed)
+
+checksum:=checksum+127
+
+END
+
+PROCEDURE testProcedures
+PARAM passed,failed,checksum:INTEGER
+DIM n:INTEGER
+DIM label$:STRING[30]
+
+n:=5
+RUN doubleByRef(n)
+RUN assertInt("procedure byref integer",n,10,passed,failed)
+
+label$:="seed"
+RUN decorate(label$)
+RUN assertString("procedure byref string",label$,"<seed>",passed,failed)
+
+RUN earlyOut(TRUE,n)
+RUN assertInt("early return true",n,99,passed,failed)
+RUN earlyOut(FALSE,n)
+RUN assertInt("early return false leaves value",n,99,passed,failed)
+
+RUN setFromExpr(7+8,n)
+RUN assertInt("procedure expression arg",n,45,passed,failed)
+
+checksum:=checksum+131
+
+END
+
+PROCEDURE doubleByRef
+PARAM n:INTEGER
+n:=n*2
+END
+
+PROCEDURE decorate
+PARAM s$:STRING
+s$:="<"+s$+">"
+END
+
+PROCEDURE earlyOut
+PARAM flag:BOOLEAN
+PARAM n:INTEGER
+IF NOT(flag) THEN RETURN
+n:=99
+END
+
+PROCEDURE setFromExpr
+PARAM source:INTEGER
+PARAM dest:INTEGER
+dest:=source*3
+END
+
+PROCEDURE testGosubRouter
+PARAM passed,failed,checksum:INTEGER
+DIM selector,total:INTEGER
+
+total:=0
+FOR selector:=1 TO 3
+ON selector GOSUB 210,220,230
+NEXT selector
+RUN assertInt("on gosub total",total,60,passed,failed)
+GOTO 240
+210 total:=total+10
+RETURN
+220 total:=total+20
+RETURN
+230 total:=total+30
+RETURN
+240 total:=total
+
+total:=0
+GOSUB 250
+RUN assertInt("nested gosub return",total,35,passed,failed)
+GOTO 280
+250 total:=total+5
+GOSUB 260
+total:=total+10
+RETURN
+260 total:=total+20
+RETURN
+280 total:=total
+
+checksum:=checksum+137
+
+END
+
+PROCEDURE testMathLibrary
+PARAM passed,failed,checksum:INTEGER
+DIM r:REAL
+DIM n:INTEGER
+
+r:=PI+ATN(1)*4-ACS(1)-ASN(0)
+RUN assertReal("pi atan acos asin",r,6.28318,.001,passed,failed)
+
+n:=FIX(3.6)+SGN(-99)+SGN(0)+SGN(42)
+RUN assertInt("fix and sgn",n,4,passed,failed)
+
+r:=SQR(SQ(3)+SQ(4))
+RUN assertReal("sqr sq hypotenuse",r,5,.0001,passed,failed)
+
+checksum:=checksum+139
+
+END
+
+PROCEDURE testPrintFormatting
+PARAM passed,failed,checksum:INTEGER
+DIM n:INTEGER
+DIM s:STRING[20]
+
+n:=123
+s:="fmt"
+PRINT "PRINT surface: ";n;" ";s
+PRINT TAB(5);"tabbed"
+PRINT "semicolon";
+PRINT " continuation"
+PRINT USING "'using value ',R6.1", 12.5
+
+RUN pass("print surface emitted",passed)
+checksum:=checksum+149
+
+END

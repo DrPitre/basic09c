@@ -1,0 +1,22 @@
+# REQUIRES: mame-coco3, toolshed-os9
+
+# RUN: rm -rf %t.dir
+# RUN: %python %S/Inputs/mame-basic09-compare.py \
+# RUN:   --mame %mame \
+# RUN:   --os9 %os9 \
+# RUN:   --basic09c basic09c \
+# RUN:   --cc clang \
+# RUN:   --disk %S/Inputs/l2_coco3_basic09.dsk \
+# RUN:   --source %S/Inputs/basic09/fibonacci \
+# RUN:   --source-name fibonacci \
+# RUN:   --output-name fibonacci.out \
+# RUN:   --seconds 300 \
+# RUN:   --basic09-shutdown-delay 120 \
+# RUN:   --work-dir %t.dir | FileCheck %s
+
+# CHECK: 0
+# CHECK: 1
+# CHECK: 1
+# CHECK: 2
+# CHECK: 3
+# CHECK: 5

@@ -1,0 +1,10 @@
+# REQUIRES: mame-coco3, toolshed-os9
+
+# RUN: rm -rf %t.dir
+# RUN: %python %S/Inputs/mame-basic09-smoke.py \
+# RUN:   --mame %mame \
+# RUN:   --os9 %os9 \
+# RUN:   --disk %S/Inputs/l2_coco3_basic09.dsk \
+# RUN:   --work-dir %t.dir | FileCheck %s
+
+# CHECK: MAME-BASIC09-SMOKE-PASS

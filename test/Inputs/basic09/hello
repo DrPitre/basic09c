@@ -1,0 +1,6 @@
+PROCEDURE hello
+REM hello - BASIC09 hello world
+
+PRINT "Hello, World!"
+PRINT "Basic09 interpreter running."
+END
