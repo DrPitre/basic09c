@@ -7,6 +7,8 @@
 # RUN: printf '42\n' | %t/input | FileCheck %s --check-prefix=INPUT
 # RUN: basic09c --compile --cc %cc -o %t/fix %t/fix.b09
 # RUN: %t/fix | FileCheck %s --check-prefix=FIX
+# RUN: basic09c --compile --cc %cc -o %t/percent %t/percent.b09
+# RUN: %t/percent | FileCheck %s --check-prefix=PERCENT
 # RUN: not basic09c --compile --cc %cc %t/hello.b09 2>&1 | FileCheck %s --check-prefix=NOOUTPUT
 
 # CHECK: Hello from compile mode
@@ -16,6 +18,8 @@
 
 # FIX: 3
 # FIX-NEXT: 0
+
+# PERCENT: APR: 5%
 
 # NOOUTPUT: error: --compile requires -o <output>
 
@@ -39,4 +43,9 @@ END
 PROCEDURE fixdemo
 PRINT FIX(3.6)
 PRINT FIX(.02*100)/100
+END
+
+#--- percent.b09
+PROCEDURE percentdemo
+PRINT "APR: ";5;"%"
 END

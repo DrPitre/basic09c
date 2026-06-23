@@ -608,7 +608,8 @@ private:
       const ASTNode *Expr = firstChildKind(*Child, "String");
       if (Expr) {
         Builder.CreateCall(Printf,
-                           {Builder.CreateGlobalString(unquote(Expr->Text))});
+                           {Builder.CreateGlobalString("%s"),
+                            Builder.CreateGlobalString(unquote(Expr->Text))});
         continue;
       }
       const ASTNode *Call = firstChildKind(*Child, "Call");
