@@ -1,6 +1,8 @@
 # -*- Python -*-
 
 import os
+import shlex
+import shutil
 
 import lit.formats
 
@@ -22,3 +24,8 @@ if path_entries:
     config.environment["PATH"] = os.pathsep.join(path_entries + [current_path])
 
 config.substitutions.append(("%python", config.python_executable))
+
+host_cc = os.environ.get("CC") or shutil.which("clang") or shutil.which("cc")
+if host_cc:
+    config.substitutions.append(("%cc", shlex.quote(host_cc)))
+    config.available_features.add("host-cc")

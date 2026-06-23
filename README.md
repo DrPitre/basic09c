@@ -46,6 +46,15 @@ build/bin/basic09c --syntax-only path/to/program.b09
 build/bin/basic09c --analyze-only path/to/program.b09
 build/bin/basic09c --dump-symbols path/to/program.b09
 build/bin/basic09c --emit-llvm path/to/program.b09
+build/bin/basic09c --compile -o program path/to/program.b09
+```
+
+`--compile` emits LLVM IR internally, generates a small `main` wrapper for the
+first BASIC09 procedure, and invokes a host C compiler to produce a native
+executable. Use `--cc` to choose the compiler:
+
+```sh
+build/bin/basic09c --compile --cc clang -o program path/to/program.b09
 ```
 
 ## Tests
