@@ -2,7 +2,6 @@ PROCEDURE loanplanner
 DIM principal,apr,extra:REAL
 DIM years,months:INTEGER
 DIM rate,payment,totalPaid,totalInterest:REAL
-DIM totalPaidDisplay,totalInterestDisplay:REAL
 
 PRINT "BASIC09 LOAN PLANNER"
 PRINT "--------------------"
@@ -18,10 +17,8 @@ RUN printSummary(principal,apr,years,extra,payment)
 RUN printSchedule(principal,rate,payment,extra,totalPaid,totalInterest)
 
 PRINT
-totalPaidDisplay:=FIX(totalPaid*100)/100
-totalInterestDisplay:=FIX(totalInterest*100)/100
-PRINT "Total paid: ";totalPaidDisplay
-PRINT "Interest paid: ";totalInterestDisplay
+PRINT "Total paid: ";FIX(totalPaid*100)/100
+PRINT "Interest paid: ";FIX(totalInterest*100)/100
 PRINT "Done."
 END
 
@@ -80,19 +77,15 @@ PROCEDURE printSummary
 PARAM principal,apr:REAL
 PARAM years:INTEGER
 PARAM extra,payment:REAL
-DIM principalDisplay,paymentDisplay,extraDisplay:REAL
 
-principalDisplay:=FIX(principal*100)/100
-paymentDisplay:=FIX(payment*100)/100
-extraDisplay:=FIX(extra*100)/100
 PRINT
 PRINT "Loan summary"
 PRINT "------------"
-PRINT "Principal: ";principalDisplay
+PRINT "Principal: ";FIX(principal*100)/100
 PRINT "APR: ";apr;"%"
 PRINT "Term: ";years;" years"
-PRINT "Required monthly payment: ";paymentDisplay
-PRINT "Extra monthly principal: ";extraDisplay
+PRINT "Required monthly payment: ";FIX(payment*100)/100
+PRINT "Extra monthly principal: ";FIX(extra*100)/100
 PRINT
 END
 
@@ -100,7 +93,6 @@ PROCEDURE printSchedule
 PARAM principal,rate,payment,extra:REAL
 PARAM totalPaid,totalInterest:REAL
 DIM balance,interest,principalPaid,paid:REAL
-DIM balanceDisplay,interestDisplay,payoffYears:REAL
 DIM month,year:INTEGER
 
 balance:=principal
@@ -138,9 +130,7 @@ totalInterest:=totalInterest+interest
 
 IF MOD(month,12)=0 OR balance<=.005 THEN
 year:=INT((month+11)/12)
-balanceDisplay:=FIX(balance*100)/100
-interestDisplay:=FIX(totalInterest*100)/100
-PRINT year;"     ";balanceDisplay;"        ";interestDisplay
+PRINT year;"     ";FIX(balance*100)/100;"        ";FIX(totalInterest*100)/100
 ENDIF
 
 EXITIF month>=600 THEN
@@ -150,6 +140,5 @@ ENDLOOP
 
 PRINT
 PRINT "Payoff months: ";month
-payoffYears:=FIX((month/12)*100)/100
-PRINT "Payoff years: ";payoffYears
+PRINT "Payoff years: ";FIX((month/12)*100)/100
 END
