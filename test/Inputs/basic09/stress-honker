@@ -352,7 +352,7 @@ r:=PI+ATN(1)*4-ACS(1)-ASN(0)
 RUN assertReal("pi atan acos asin",r,6.28318,.001,passed,failed)
 
 n:=FIX(3.6)+SGN(-99)+SGN(0)+SGN(42)
-RUN assertInt("fix and sgn",n,4,passed,failed)
+RUN assertInt("fix and sgn",n,3,passed,failed)
 
 r:=SQR(SQ(3)+SQ(4))
 RUN assertReal("sqr sq hypotenuse",r,5,.0001,passed,failed)

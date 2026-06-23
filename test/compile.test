@@ -5,12 +5,17 @@
 # RUN: %t/hello | FileCheck %s
 # RUN: basic09c --compile --cc %cc -o %t/input %t/input.b09
 # RUN: printf '42\n' | %t/input | FileCheck %s --check-prefix=INPUT
+# RUN: basic09c --compile --cc %cc -o %t/fix %t/fix.b09
+# RUN: %t/fix | FileCheck %s --check-prefix=FIX
 # RUN: not basic09c --compile --cc %cc %t/hello.b09 2>&1 | FileCheck %s --check-prefix=NOOUTPUT
 
 # CHECK: Hello from compile mode
 # CHECK-NEXT: 42
 
 # INPUT: Value: ? 42
+
+# FIX: 3
+# FIX-NEXT: 0
 
 # NOOUTPUT: error: --compile requires -o <output>
 
@@ -28,4 +33,10 @@ DIM x:INTEGER
 PRINT "Value: ";
 INPUT x
 PRINT x
+END
+
+#--- fix.b09
+PROCEDURE fixdemo
+PRINT FIX(3.6)
+PRINT FIX(.02*100)/100
 END

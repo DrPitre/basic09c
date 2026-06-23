@@ -1428,7 +1428,7 @@ private:
     if (Expr.Text == "SQR")
       return Builder.CreateCall(getUnaryDoubleFn("sqrt"), {Arg});
     if (Expr.Text == "FIX")
-      return Builder.CreateCall(getUnaryDoubleFn("round"), {Arg});
+      return Builder.CreateFPToSI(Arg, i16Ty());
     if (Expr.Text == "ABS")
       return Builder.CreateCall(getUnaryDoubleFn("fabs"), {Arg});
     if (Expr.Text == "SQ")
