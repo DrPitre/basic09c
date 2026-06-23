@@ -20,6 +20,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/TargetParser/Triple.h"
+#include <cctype>
 #include <cstdint>
 #include <vector>
 
@@ -600,7 +601,8 @@ private:
   bool emitPrint(const ASTNode &Stmt) {
     FunctionCallee Printf = getPrintf();
 
-    for (const std::unique_ptr<ASTNode> &Child : Stmt.Children) {
+    for (size_t I = 0; I < Stmt.Children.size(); ++I) {
+      const std::unique_ptr<ASTNode> &Child = Stmt.Children[I];
       if (Child->Kind == "Separator")
         continue;
       if (Child->Kind != "Item")
@@ -624,10 +626,14 @@ private:
       if (V->getType()->isPointerTy()) {
         Builder.CreateCall(Printf, {Builder.CreateGlobalString("%s"), V});
       } else if (V->getType()->isDoubleTy()) {
-        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%g "), V});
+        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%g"), V});
+        if (needsNumericSpacerBeforeNextItem(Stmt, I))
+          Builder.CreateCall(Printf, {Builder.CreateGlobalString(" ")});
       } else if (V->getType()->isIntegerTy()) {
         V = Builder.CreateSExtOrTrunc(V, i32Ty());
-        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%d "), V});
+        Builder.CreateCall(Printf, {Builder.CreateGlobalString("%d"), V});
+        if (needsNumericSpacerBeforeNextItem(Stmt, I))
+          Builder.CreateCall(Printf, {Builder.CreateGlobalString(" ")});
       } else {
         return error(*Child, "PRINT expression has unsupported IR type");
       }
@@ -636,6 +642,25 @@ private:
     if (shouldPrintNewline(Stmt))
       Builder.CreateCall(Printf, {Builder.CreateGlobalString("\n")});
     return true;
+  }
+
+  bool needsNumericSpacerBeforeNextItem(const ASTNode &Stmt,
+                                        size_t CurrentIndex) const {
+    for (size_t I = CurrentIndex + 1; I < Stmt.Children.size(); ++I) {
+      const ASTNode &Next = *Stmt.Children[I];
+      if (Next.Kind == "Separator")
+        continue;
+      if (Next.Kind != "Item")
+        return false;
+      const ASTNode *String = firstChildKind(Next, "String");
+      if (!String)
+        return false;
+      std::string Text = unquote(String->Text);
+      if (Text.empty())
+        return false;
+      return !std::isspace(static_cast<unsigned char>(Text.front()));
+    }
+    return false;
   }
 
   bool shouldPrintNewline(const ASTNode &Stmt) const {

@@ -20,6 +20,7 @@
 # FIX-NEXT: 0
 
 # PERCENT: APR: 5 %
+# PERCENT-NEXT: Term: 5 years
 
 # NOOUTPUT: error: --compile requires -o <output>
 
@@ -48,4 +49,5 @@ END
 #--- percent.b09
 PROCEDURE percentdemo
 PRINT "APR: ";5;"%"
+PRINT "Term: ";5;" years"
 END
