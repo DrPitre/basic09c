@@ -45,6 +45,7 @@ build/bin/basic09c --dump-ast path/to/program.b09
 build/bin/basic09c --syntax-only path/to/program.b09
 build/bin/basic09c --analyze-only path/to/program.b09
 build/bin/basic09c --dump-symbols path/to/program.b09
+build/bin/basic09c --format path/to/program.b09
 build/bin/basic09c --emit-llvm path/to/program.b09
 build/bin/basic09c --compile -o program path/to/program.b09
 ```

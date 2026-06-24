@@ -68,6 +68,11 @@ static cl::opt<bool>
                 cl::desc("Parse BASIC09 source and dump symbols"),
                 cl::cat(Basic09CCategory));
 
+static cl::opt<bool>
+    FormatSource("format",
+                 cl::desc("Pretty-print normalized BASIC09 source"),
+                 cl::cat(Basic09CCategory));
+
 static cl::opt<bool> EmitLLVM("emit-llvm",
                               cl::desc("Parse BASIC09 source and emit LLVM IR"),
                               cl::cat(Basic09CCategory));
@@ -224,6 +229,124 @@ static int dumpParsedSymbols(StringRef Source) {
     return 1;
 
   return dumpSymbols(*Root, outs(), errs()) ? 0 : 1;
+}
+
+static bool isFormatOperator(StringRef Text) {
+  return Text == ":=" || Text == "=" || Text == "<>" || Text == "<" ||
+         Text == "<=" || Text == ">" || Text == ">=" || Text == "+" ||
+         Text == "-" || Text == "*" || Text == "/" || Text == "^";
+}
+
+static bool isWordToken(const Token &Tok) {
+  return Tok.Kind == TokenKind::Identifier || Tok.Kind == TokenKind::Integer ||
+         Tok.Kind == TokenKind::HexInteger || Tok.Kind == TokenKind::Real ||
+         Tok.Kind == TokenKind::String;
+}
+
+static bool formatNeedsSpaceBefore(const Token &Tok, const Token *Prev,
+                                   const Token *Next) {
+  if (!Prev)
+    return false;
+  StringRef Text = Tok.Text;
+  StringRef PrevText = Prev->Text;
+
+  if (Text == "," || Text == ";" || Text == ")" || Text == "]" ||
+      Text == ".")
+    return false;
+  if (Text == ":")
+    return false;
+  if (Text == "(" || Text == "[")
+    return false;
+  if (PrevText == "(" || PrevText == "[" || PrevText == "." ||
+      PrevText == "#")
+    return false;
+  if (PrevText == ",")
+    return true;
+  if (PrevText == ":")
+    return true;
+  if (isFormatOperator(Text) || isFormatOperator(PrevText))
+    return true;
+  return isWordToken(*Prev) && isWordToken(Tok);
+}
+
+static std::string formatTokenLine(ArrayRef<Token> Line) {
+  std::string Out;
+  for (size_t I = 0; I < Line.size(); ++I) {
+    const Token *Prev = I == 0 ? nullptr : &Line[I - 1];
+    const Token *Next = I + 1 < Line.size() ? &Line[I + 1] : nullptr;
+    if (formatNeedsSpaceBefore(Line[I], Prev, Next))
+      Out.push_back(' ');
+    Out += Line[I].Text;
+  }
+  return Out;
+}
+
+static bool isLabelOnlyLine(ArrayRef<Token> Line) {
+  return Line.size() == 2 && Line[0].Kind == TokenKind::Identifier &&
+         Line[1].Text == ":";
+}
+
+static bool isOutdentKeyword(StringRef Keyword) {
+  return Keyword == "ELSE" || Keyword == "ENDIF" || Keyword == "ENDWHILE" ||
+         Keyword == "ENDLOOP" || Keyword == "NEXT" || Keyword == "UNTIL" ||
+         Keyword == "END";
+}
+
+static bool isIndentKeyword(StringRef Keyword) {
+  return Keyword == "PROCEDURE" || Keyword == "ELSE" || Keyword == "FOR" ||
+         Keyword == "WHILE" || Keyword == "REPEAT" || Keyword == "LOOP";
+}
+
+static bool lineEndsWithKeyword(ArrayRef<Token> Line, StringRef Keyword) {
+  return !Line.empty() && Line.back().Kind == TokenKind::Identifier &&
+         Line.back().Text == Keyword;
+}
+
+static int formatSource(StringRef Source) {
+  std::unique_ptr<ASTNode> Root = parseSource(Source);
+  if (!Root)
+    return 1;
+
+  std::vector<Token> Tokens;
+  if (!normalizeAndLex(Source, Tokens))
+    return 1;
+
+  int Indent = 0;
+  std::vector<Token> Line;
+  auto FlushLine = [&]() {
+    if (Line.empty())
+      return;
+
+    StringRef First = Line.front().Text;
+    bool LabelOnly = isLabelOnlyLine(Line);
+    if (!LabelOnly && isOutdentKeyword(First) && Indent > 0)
+      --Indent;
+
+    if (LabelOnly) {
+      outs() << formatTokenLine(Line) << '\n';
+    } else {
+      for (int I = 0; I < Indent; ++I)
+        outs() << "  ";
+      outs() << formatTokenLine(Line) << '\n';
+    }
+
+    if (!LabelOnly &&
+        (isIndentKeyword(First) || lineEndsWithKeyword(Line, "THEN")))
+      ++Indent;
+    Line.clear();
+  };
+
+  for (const Token &Tok : Tokens) {
+    if (Tok.Kind == TokenKind::EndOfFile)
+      break;
+    if (Tok.Kind == TokenKind::Newline) {
+      FlushLine();
+      continue;
+    }
+    Line.push_back(Tok);
+  }
+  FlushLine();
+  return 0;
 }
 
 static int emitParsedLLVM(StringRef Source, StringRef ModuleName) {
@@ -542,6 +665,8 @@ int main(int argc, char **argv) {
     return analyzeOnly((*InputOrErr)->getBuffer());
   if (DumpSymbols)
     return dumpParsedSymbols((*InputOrErr)->getBuffer());
+  if (FormatSource)
+    return formatSource((*InputOrErr)->getBuffer());
   if (EmitLLVM)
     return emitParsedLLVM((*InputOrErr)->getBuffer(), InputFilename);
   if (Compile)
@@ -549,7 +674,7 @@ int main(int argc, char **argv) {
 
   WithColor::error(errs(), "basic09c")
       << "no action specified; use --dump-tokens, --dump-ast, "
-         "--dump-symbols, --analyze-only, --syntax-only, --emit-llvm, "
-         "or --compile\n";
+         "--dump-symbols, --analyze-only, --syntax-only, --format, "
+         "--emit-llvm, or --compile\n";
   return 1;
 }
