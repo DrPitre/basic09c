@@ -17,8 +17,8 @@ RUN printSummary(principal,apr,years,extra,payment)
 RUN printSchedule(principal,rate,payment,extra,totalPaid,totalInterest)
 
 PRINT
-PRINT "Total paid: ";FIX(totalPaid*100)/100
-PRINT "Interest paid: ";FIX(totalInterest*100)/100
+PRINT USING "'Total paid: ',R8.2",totalPaid
+PRINT USING "'Interest paid: ',R8.2",totalInterest
 PRINT "Done."
 END
 
@@ -81,11 +81,11 @@ PARAM extra,payment:REAL
 PRINT
 PRINT "Loan summary"
 PRINT "------------"
-PRINT "Principal: ";FIX(principal*100)/100
+PRINT USING "'Principal: ',R8.2",principal
 PRINT "APR: ";apr;"%"
 PRINT "Term: ";years;" years"
-PRINT "Required monthly payment: ";FIX(payment*100)/100
-PRINT "Extra monthly principal: ";FIX(extra*100)/100
+PRINT USING "'Required monthly payment: ',R8.2",payment
+PRINT USING "'Extra monthly principal: ',R8.2",extra
 PRINT
 END
 
@@ -130,7 +130,7 @@ totalInterest:=totalInterest+interest
 
 IF MOD(month,12)=0 OR balance<=.005 THEN
 year:=INT((month+11)/12)
-PRINT year;"     ";FIX(balance*100)/100;"        ";FIX(totalInterest*100)/100
+PRINT USING "I4,'  ',R13.2,'  ',R13.2",year,balance,totalInterest
 ENDIF
 
 EXITIF month>=600 THEN

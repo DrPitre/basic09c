@@ -1,0 +1,27 @@
+# REQUIRES: host-cc
+# REQUIRES: sdl2
+
+# RUN: split-file %s %t
+# RUN: not basic09c --compile --cc %cc -o %t/no-sdl %t/sdl.b09 2>&1 | FileCheck %s --check-prefix=NO-SDL
+# RUN: basic09c --compile --sdl --cc %cc -o %t/sdl %t/sdl.b09
+# The lit smoke run uses SDL's dummy video driver, so it should not create a
+# visible window. Use test/sdl-demo.b09 directly for an interactive demo.
+# RUN: env SDL_VIDEODRIVER=dummy %t/sdl
+# RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-demo %S/sdl-demo.b09
+
+# NO-SDL: source uses SDL runtime calls; pass --sdl with --compile
+
+#--- sdl.b09
+PROCEDURE sdldemo
+DIM quit,key:INTEGER
+RUN sdl("open",64,48)
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("clear",0)
+RUN sdl("line",0,0,63,47,15)
+RUN sdl("pset",32,24,12)
+RUN sdl("present")
+RUN sdl("delay",1)
+RUN sdl("close")
+END

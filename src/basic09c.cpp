@@ -31,7 +31,9 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -74,6 +76,11 @@ static cl::opt<bool>
     Compile("compile",
             cl::desc("Compile BASIC09 source to a native executable"),
             cl::cat(Basic09CCategory));
+
+static cl::opt<bool>
+    EnableSDL("sdl",
+              cl::desc("Link the optional SDL2 graphics runtime for --compile"),
+              cl::cat(Basic09CCategory));
 
 static cl::opt<std::string>
     OutputFilename("o", cl::desc("Output filename for --compile"),
@@ -229,6 +236,174 @@ static int emitParsedLLVM(StringRef Source, StringRef ModuleName) {
   return emitLLVMIR(*Root, ModuleName, TargetTriple, outs(), errs()) ? 0 : 1;
 }
 
+static std::string sdlRuntimeSource() {
+  return R"c(
+#define SDL_MAIN_HANDLED
+#include <SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static SDL_Window *basic09_sdl_window;
+static SDL_Renderer *basic09_sdl_renderer;
+static int basic09_sdl_quit_requested;
+static int basic09_sdl_last_key;
+
+void basic09_sdl_close(void);
+
+static void basic09_sdl_color(int color) {
+  static const unsigned char palette[16][3] = {
+      {0, 0, 0},       {0, 0, 170},     {0, 170, 0},     {0, 170, 170},
+      {170, 0, 0},     {170, 0, 170},   {170, 85, 0},    {170, 170, 170},
+      {85, 85, 85},    {85, 85, 255},   {85, 255, 85},   {85, 255, 255},
+      {255, 85, 85},   {255, 85, 255},  {255, 255, 85},  {255, 255, 255},
+  };
+  color &= 15;
+  SDL_SetRenderDrawColor(basic09_sdl_renderer, palette[color][0],
+                         palette[color][1], palette[color][2], 255);
+}
+
+static int basic09_sdl_ready(void) {
+  if (basic09_sdl_renderer)
+    return 1;
+  fputs("basic09 SDL runtime is not open\n", stderr);
+  return 0;
+}
+
+void basic09_sdl_poll(void) {
+  SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_QUIT) {
+      basic09_sdl_quit_requested = 1;
+    } else if (event.type == SDL_KEYDOWN) {
+      basic09_sdl_last_key = (int)event.key.keysym.sym;
+      if (event.key.keysym.sym == SDLK_ESCAPE)
+        basic09_sdl_quit_requested = 1;
+    }
+  }
+}
+
+int basic09_sdl_quit(void) {
+  return basic09_sdl_quit_requested;
+}
+
+int basic09_sdl_key(void) {
+  int key = basic09_sdl_last_key;
+  basic09_sdl_last_key = 0;
+  return key;
+}
+
+void basic09_sdl_close(void) {
+  if (basic09_sdl_renderer) {
+    SDL_DestroyRenderer(basic09_sdl_renderer);
+    basic09_sdl_renderer = NULL;
+  }
+  if (basic09_sdl_window) {
+    SDL_DestroyWindow(basic09_sdl_window);
+    basic09_sdl_window = NULL;
+  }
+  SDL_Quit();
+}
+
+void basic09_sdl_open(int width, int height) {
+  if (basic09_sdl_renderer)
+    return;
+  SDL_SetMainReady();
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+    fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+    exit(1);
+  }
+  basic09_sdl_window =
+      SDL_CreateWindow("basic09c SDL", SDL_WINDOWPOS_CENTERED,
+                       SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_SHOWN);
+  if (!basic09_sdl_window) {
+    fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+    exit(1);
+  }
+  basic09_sdl_renderer =
+      SDL_CreateRenderer(basic09_sdl_window, -1, SDL_RENDERER_ACCELERATED);
+  if (!basic09_sdl_renderer) {
+    basic09_sdl_renderer =
+        SDL_CreateRenderer(basic09_sdl_window, -1, SDL_RENDERER_SOFTWARE);
+  }
+  if (!basic09_sdl_renderer) {
+    fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+    exit(1);
+  }
+  basic09_sdl_quit_requested = 0;
+  basic09_sdl_last_key = 0;
+  atexit(basic09_sdl_close);
+  SDL_ShowWindow(basic09_sdl_window);
+  basic09_sdl_poll();
+}
+
+void basic09_sdl_clear(int color) {
+  if (!basic09_sdl_ready())
+    return;
+  basic09_sdl_color(color);
+  SDL_RenderClear(basic09_sdl_renderer);
+}
+
+void basic09_sdl_present(void) {
+  if (!basic09_sdl_ready())
+    return;
+  SDL_RenderPresent(basic09_sdl_renderer);
+  basic09_sdl_poll();
+}
+
+void basic09_sdl_delay(int milliseconds) {
+  int remaining = milliseconds < 0 ? 0 : milliseconds;
+  while (remaining > 0) {
+    int step = remaining < 16 ? remaining : 16;
+    SDL_Delay((unsigned)step);
+    basic09_sdl_poll();
+    remaining -= step;
+  }
+}
+
+void basic09_sdl_pset(int x, int y, int color) {
+  if (!basic09_sdl_ready())
+    return;
+  basic09_sdl_color(color);
+  SDL_RenderDrawPoint(basic09_sdl_renderer, x, y);
+}
+
+void basic09_sdl_line(int x1, int y1, int x2, int y2, int color) {
+  if (!basic09_sdl_ready())
+    return;
+  basic09_sdl_color(color);
+  SDL_RenderDrawLine(basic09_sdl_renderer, x1, y1, x2, y2);
+}
+)c";
+}
+
+static std::vector<std::string> splitCommandLineWords(StringRef Text) {
+  std::vector<std::string> Words;
+  std::istringstream IS(Text.str());
+  std::string Word;
+  while (IS >> Word)
+    Words.push_back(Word);
+  return Words;
+}
+
+static std::string runCommandCapture(StringRef Command) {
+  std::string Output;
+  FILE *Pipe = popen(Command.str().c_str(), "r");
+  if (!Pipe)
+    return Output;
+  char Buffer[256];
+  while (fgets(Buffer, sizeof(Buffer), Pipe))
+    Output += Buffer;
+  pclose(Pipe);
+  return Output;
+}
+
+static std::vector<std::string> getSDLCompilerFlags() {
+  std::string Flags = runCommandCapture("sdl2-config --cflags --libs");
+  if (Flags.empty())
+    Flags = runCommandCapture("pkg-config --cflags --libs sdl2");
+  return splitCommandLineWords(Flags);
+}
+
 static int compileToExecutable(StringRef Source, StringRef ModuleName) {
   if (OutputFilename.empty()) {
     WithColor::error(errs(), "basic09c")
@@ -255,19 +430,32 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     return 1;
   IROS.flush();
   normalizeIRForHostCompiler(IR);
+  if (!EnableSDL && StringRef(IR).contains("@basic09_sdl_")) {
+    WithColor::error(errs(), "basic09c")
+        << "source uses SDL runtime calls; pass --sdl with --compile\n";
+    return 1;
+  }
 
   SmallString<128> IRPath;
   SmallString<128> MainPath;
+  SmallString<128> SDLRuntimePath;
   if (!createTempFile("basic09c", "ll", IRPath))
     return 1;
   if (!createTempFile("basic09c-main", "c", MainPath)) {
     sys::fs::remove(IRPath);
     return 1;
   }
+  if (EnableSDL && !createTempFile("basic09c-sdl", "c", SDLRuntimePath)) {
+    sys::fs::remove(IRPath);
+    sys::fs::remove(MainPath);
+    return 1;
+  }
 
   auto Cleanup = [&]() {
     sys::fs::remove(IRPath);
     sys::fs::remove(MainPath);
+    if (!SDLRuntimePath.empty())
+      sys::fs::remove(SDLRuntimePath);
   };
 
   if (!writeFile(IRPath, IR)) {
@@ -287,6 +475,10 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     Cleanup();
     return 1;
   }
+  if (EnableSDL && !writeFile(SDLRuntimePath, sdlRuntimeSource())) {
+    Cleanup();
+    return 1;
+  }
 
   ErrorOr<std::string> Compiler = sys::findProgramByName(CCompiler);
   if (!Compiler) {
@@ -297,8 +489,23 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     return 1;
   }
 
-  std::vector<StringRef> Args = {*Compiler, IRPath, MainPath, "-o",
-                                 OutputFilename};
+  std::vector<std::string> ArgStorage;
+  std::vector<StringRef> Args = {*Compiler, IRPath, MainPath};
+  if (EnableSDL) {
+    Args.push_back(SDLRuntimePath);
+    ArgStorage = getSDLCompilerFlags();
+    if (ArgStorage.empty()) {
+      WithColor::error(errs(), "basic09c")
+          << "--sdl requires SDL2 development flags from sdl2-config or "
+             "pkg-config\n";
+      Cleanup();
+      return 1;
+    }
+  }
+  Args.push_back("-o");
+  Args.push_back(OutputFilename);
+  for (const std::string &Arg : ArgStorage)
+    Args.push_back(Arg);
   int Result = sys::ExecuteAndWait(*Compiler, Args);
   Cleanup();
 

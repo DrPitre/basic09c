@@ -57,6 +57,54 @@ executable. Use `--cc` to choose the compiler:
 build/bin/basic09c --compile --cc clang -o program path/to/program.b09
 ```
 
+## Optional SDL Graphics Runtime
+
+`basic09c` has an experimental SDL2 runtime for simple host graphics. The
+parser treats these as normal BASIC09 `RUN` calls; the IR lowering recognizes a
+literal `sdl` command and `--compile --sdl` links the small SDL runtime.
+
+```basic09
+PROCEDURE demo
+DIM quit,key:INTEGER
+RUN sdl("open",320,200)
+
+REPEAT
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("clear",0)
+RUN sdl("line",10,10,310,190,15)
+RUN sdl("pset",160,100,12)
+RUN sdl("present")
+RUN sdl("delay",16)
+UNTIL quit<>0 OR key=27
+
+RUN sdl("close")
+END
+```
+
+Build it with:
+
+```sh
+build/bin/basic09c --compile --sdl --cc clang -o demo demo.b09
+```
+
+Then run the executable normally to open a visible SDL window:
+
+```sh
+./demo
+```
+
+The lit tests use `SDL_VIDEODRIVER=dummy` for headless smoke coverage, so those
+test runs intentionally do not display a window.
+
+The `--sdl` option requires SDL2 development flags from `sdl2-config` or
+`pkg-config --cflags --libs sdl2`. On macOS with Homebrew:
+
+```sh
+brew install sdl2
+```
+
 ## Tests
 
 Run the standalone test suite with:

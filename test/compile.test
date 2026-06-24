@@ -9,6 +9,8 @@
 # RUN: %t/fix | FileCheck %s --check-prefix=FIX
 # RUN: basic09c --compile --cc %cc -o %t/percent %t/percent.b09
 # RUN: %t/percent | FileCheck %s --check-prefix=PERCENT
+# RUN: basic09c --compile --cc %cc -o %t/using %t/using.b09
+# RUN: %t/using | FileCheck %s --check-prefix=USING
 # RUN: not basic09c --compile --cc %cc %t/hello.b09 2>&1 | FileCheck %s --check-prefix=NOOUTPUT
 
 # CHECK: Hello from compile mode
@@ -21,6 +23,11 @@
 
 # PERCENT: APR: 5 %
 # PERCENT-NEXT: Term: 5 years
+
+# USING: APR: 5 %
+# USING-NEXT: Term: 5 years
+# USING-NEXT: Money: 123.46
+# USING-NEXT: Principal:  50000.00
 
 # NOOUTPUT: error: --compile requires -o <output>
 
@@ -50,4 +57,12 @@ END
 PROCEDURE percentdemo
 PRINT "APR: ";5;"%"
 PRINT "Term: ";5;" years"
+END
+
+#--- using.b09
+PROCEDURE usingdemo
+PRINT USING "'APR: ',R1,' %'",5
+PRINT USING "'Term: ',I1,' years'",5
+PRINT USING "'Money: ',R8.2",123.456
+PRINT USING "'Principal: ',R12.2",50000.0
 END

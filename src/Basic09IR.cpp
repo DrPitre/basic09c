@@ -20,8 +20,11 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/TargetParser/Triple.h"
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace llvm;
@@ -670,18 +673,179 @@ private:
     return Last.Kind != "Separator";
   }
 
-  bool emitPrintUsing(const ASTNode &Stmt) {
-    if (const ASTNode *Format = firstChildKind(Stmt, "Format"))
-      if (const ASTNode *String = firstChildKind(*Format, "String")) {
-        std::string Text = printUsingLabel(unquote(String->Text));
-        if (!Text.empty())
-          Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString(Text)});
+  struct PrintUsingPart {
+    enum PartKind { Literal, Field };
+    PartKind Kind = Literal;
+    std::string Text;
+    char Code = 0;
+    int Width = 0;
+    int Precision = -1;
+  };
+
+  static PrintUsingPart printUsingLiteral(std::string Text) {
+    PrintUsingPart Part;
+    Part.Kind = PrintUsingPart::Literal;
+    Part.Text = std::move(Text);
+    return Part;
+  }
+
+  static PrintUsingPart printUsingField(char Code, int Width, int Precision) {
+    PrintUsingPart Part;
+    Part.Kind = PrintUsingPart::Field;
+    Part.Code = std::toupper(static_cast<unsigned char>(Code));
+    Part.Width = Width;
+    Part.Precision = Precision;
+    return Part;
+  }
+
+  static std::vector<PrintUsingPart> parsePrintUsingFormat(StringRef Format) {
+    std::vector<PrintUsingPart> Parts;
+    std::string Text = Format.str();
+    for (size_t I = 0; I < Text.size();) {
+      if (Text[I] == ',' || std::isspace(static_cast<unsigned char>(Text[I]))) {
+        ++I;
+        continue;
       }
 
-    for (const std::unique_ptr<ASTNode> &Child : Stmt.Children) {
-      if (Child->Kind != "Item")
+      if (Text[I] == '\'') {
+        size_t End = Text.find('\'', I + 1);
+        if (End == std::string::npos) {
+          Parts.push_back(printUsingLiteral(Text.substr(I + 1)));
+          break;
+        }
+        Parts.push_back(printUsingLiteral(Text.substr(I + 1, End - I - 1)));
+        I = End + 1;
         continue;
-      Value *V = emitExprChild(*Child);
+      }
+
+      char Code = std::toupper(static_cast<unsigned char>(Text[I]));
+      if (Code == 'X') {
+        ++I;
+        int Width = 1;
+        size_t Begin = I;
+        while (I < Text.size() &&
+               std::isdigit(static_cast<unsigned char>(Text[I])))
+          ++I;
+        if (I > Begin)
+          Width = std::stoi(Text.substr(Begin, I - Begin));
+        Parts.push_back(printUsingLiteral(std::string(Width, ' ')));
+        continue;
+      }
+      if (Code != 'H' && Code != 'I' && Code != 'R' && Code != 'S') {
+        ++I;
+        continue;
+      }
+
+      ++I;
+      size_t Begin = I;
+      while (I < Text.size() &&
+             std::isdigit(static_cast<unsigned char>(Text[I])))
+        ++I;
+      int Width = I > Begin ? std::stoi(Text.substr(Begin, I - Begin)) : 0;
+      int Precision = -1;
+      if (I < Text.size() && Text[I] == '.') {
+        ++I;
+        Begin = I;
+        while (I < Text.size() &&
+               std::isdigit(static_cast<unsigned char>(Text[I])))
+          ++I;
+        if (I > Begin)
+          Precision = std::stoi(Text.substr(Begin, I - Begin));
+      }
+      while (I < Text.size() && Text[I] == '<')
+        ++I;
+      Parts.push_back(printUsingField(Code, Width, Precision));
+    }
+    return Parts;
+  }
+
+  static std::string printfFormat(const PrintUsingPart &Part) {
+    std::string Format = "%";
+    if (Part.Code == 'H')
+      Format += "0";
+    int Width = Part.Width;
+    if (Part.Code == 'R' && Part.Precision >= 0 && Width > 0)
+      Width = std::max(0, Width - Part.Precision - 1);
+    if (Width > 0)
+      Format += std::to_string(Width);
+    if (Part.Precision >= 0 && Part.Code == 'R')
+      Format += "." + std::to_string(Part.Precision);
+
+    switch (Part.Code) {
+    case 'H':
+      Format += "X";
+      break;
+    case 'I':
+      Format += "d";
+      break;
+    case 'S':
+      Format += "s";
+      break;
+    case 'R':
+    default:
+      Format += Part.Precision >= 0 ? "f" : "g";
+      break;
+    }
+    return Format;
+  }
+
+  static std::vector<const ASTNode *> printItems(const ASTNode &Stmt) {
+    std::vector<const ASTNode *> Items;
+    for (const std::unique_ptr<ASTNode> &Child : Stmt.Children)
+      if (Child->Kind == "Item")
+        Items.push_back(Child.get());
+    return Items;
+  }
+
+  bool emitPrintUsing(const ASTNode &Stmt) {
+    std::vector<PrintUsingPart> Parts;
+    if (const ASTNode *Format = firstChildKind(Stmt, "Format"))
+      if (const ASTNode *String = firstChildKind(*Format, "String"))
+        Parts = parsePrintUsingFormat(unquote(String->Text));
+
+    auto Items = printItems(Stmt);
+    size_t ItemIndex = 0;
+    for (const PrintUsingPart &Part : Parts) {
+      if (Part.Kind == PrintUsingPart::Literal) {
+        Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%s"),
+                                         Builder.CreateGlobalString(Part.Text)});
+        continue;
+      }
+
+      if (ItemIndex >= Items.size())
+        break;
+      Value *V = emitExprChild(*Items[ItemIndex++]);
+      if (!V)
+        return false;
+
+      switch (Part.Code) {
+      case 'H':
+        Builder.CreateCall(getPrintf(),
+                           {Builder.CreateGlobalString(printfFormat(Part)),
+                            coerceScalar(V, i32Ty())});
+        break;
+      case 'I':
+        Builder.CreateCall(getPrintf(),
+                           {Builder.CreateGlobalString(printfFormat(Part)),
+                            coerceScalar(V, i32Ty())});
+        break;
+      case 'S':
+        if (!V->getType()->isPointerTy())
+          return error(*Items[ItemIndex - 1], "S print format expects string");
+        Builder.CreateCall(getPrintf(),
+                           {Builder.CreateGlobalString(printfFormat(Part)), V});
+        break;
+      case 'R':
+      default:
+        Builder.CreateCall(getPrintf(),
+                           {Builder.CreateGlobalString(printfFormat(Part)),
+                            coerceScalar(V, Type::getDoubleTy(Context))});
+        break;
+      }
+    }
+
+    for (; ItemIndex < Items.size(); ++ItemIndex) {
+      Value *V = emitExprChild(*Items[ItemIndex]);
       if (!V)
         return false;
       if (V->getType()->isPointerTy())
@@ -694,7 +858,8 @@ private:
             {Builder.CreateGlobalString("%d"),
              Builder.CreateSExtOrTrunc(V, i32Ty())});
     }
-    Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
+    if (shouldPrintNewline(Stmt))
+      Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
     return true;
   }
 
@@ -1099,6 +1264,8 @@ private:
 
     if (Call->Text == "RANDOMIZE")
       return true;
+    if (Call->Text == "SDL")
+      return emitSdlCall(*Call);
 
     auto ProcIt = Procedures.find(StringRef(Call->Text).lower());
     if (ProcIt != Procedures.end())
@@ -1118,6 +1285,130 @@ private:
     }
 
     return true;
+  }
+
+  bool emitSdlCall(const ASTNode &Call) {
+    if (Call.Children.empty())
+      return error(Call, "SDL expects a command string");
+    const ASTNode &CommandArg = *Call.Children.front();
+    if (CommandArg.Kind != "String")
+      return error(CommandArg, "SDL command must be a string literal");
+
+    std::string Command = StringRef(unquote(CommandArg.Text)).lower();
+    ArrayRef<std::unique_ptr<ASTNode>> Args(Call.Children);
+    Args = Args.drop_front();
+
+    auto EmitI32Arg = [&](const ASTNode &Arg) -> Value * {
+      Value *V = emitExpr(Arg);
+      if (!V)
+        return nullptr;
+      return coerceScalar(V, i32Ty());
+    };
+
+    auto EmitNoArg = [&](StringRef Name) -> bool {
+      if (!Args.empty())
+        return error(Call, ("SDL command '" + Command +
+                            "' expects no arguments").c_str());
+      Builder.CreateCall(getSdlFn(Name, Type::getVoidTy(Context), {}));
+      return true;
+    };
+
+    auto EmitOneI32 = [&](StringRef Name) -> bool {
+      if (Args.size() != 1)
+        return error(Call, ("SDL command '" + Command +
+                            "' expects one argument").c_str());
+      Value *A = EmitI32Arg(*Args[0]);
+      if (!A)
+        return false;
+      Builder.CreateCall(getSdlFn(Name, Type::getVoidTy(Context), {i32Ty()}),
+                         {A});
+      return true;
+    };
+
+    if (Command == "open") {
+      if (Args.size() != 2)
+        return error(Call, "SDL command 'open' expects width and height");
+      Value *Width = EmitI32Arg(*Args[0]);
+      Value *Height = EmitI32Arg(*Args[1]);
+      if (!Width || !Height)
+        return false;
+      Builder.CreateCall(
+          getSdlFn("basic09_sdl_open", Type::getVoidTy(Context),
+                   {i32Ty(), i32Ty()}),
+          {Width, Height});
+      return true;
+    }
+    if (Command == "clear")
+      return EmitOneI32("basic09_sdl_clear");
+    if (Command == "poll")
+      return EmitNoArg("basic09_sdl_poll");
+    if (Command == "present")
+      return EmitNoArg("basic09_sdl_present");
+    if (Command == "close")
+      return EmitNoArg("basic09_sdl_close");
+    if (Command == "delay")
+      return EmitOneI32("basic09_sdl_delay");
+    if (Command == "pset") {
+      if (Args.size() != 3)
+        return error(Call, "SDL command 'pset' expects x, y, color");
+      Value *X = EmitI32Arg(*Args[0]);
+      Value *Y = EmitI32Arg(*Args[1]);
+      Value *Color = EmitI32Arg(*Args[2]);
+      if (!X || !Y || !Color)
+        return false;
+      Builder.CreateCall(
+          getSdlFn("basic09_sdl_pset", Type::getVoidTy(Context),
+                   {i32Ty(), i32Ty(), i32Ty()}),
+          {X, Y, Color});
+      return true;
+    }
+    if (Command == "line") {
+      if (Args.size() != 5)
+        return error(Call, "SDL command 'line' expects x1, y1, x2, y2, color");
+      Value *X1 = EmitI32Arg(*Args[0]);
+      Value *Y1 = EmitI32Arg(*Args[1]);
+      Value *X2 = EmitI32Arg(*Args[2]);
+      Value *Y2 = EmitI32Arg(*Args[3]);
+      Value *Color = EmitI32Arg(*Args[4]);
+      if (!X1 || !Y1 || !X2 || !Y2 || !Color)
+        return false;
+      Builder.CreateCall(
+          getSdlFn("basic09_sdl_line", Type::getVoidTy(Context),
+                   {i32Ty(), i32Ty(), i32Ty(), i32Ty(), i32Ty()}),
+          {X1, Y1, X2, Y2, Color});
+      return true;
+    }
+
+    return error(CommandArg, ("unknown SDL command: " + Command).c_str());
+  }
+
+  Value *emitSdlFunction(const ASTNode &Call) {
+    if (Call.Children.empty()) {
+      error(Call, "SDL expects a command string");
+      return nullptr;
+    }
+    const ASTNode &CommandArg = *Call.Children.front();
+    if (CommandArg.Kind != "String") {
+      error(CommandArg, "SDL command must be a string literal");
+      return nullptr;
+    }
+    if (Call.Children.size() != 1) {
+      error(Call, "SDL query expects only a command string");
+      return nullptr;
+    }
+
+    std::string Command = StringRef(unquote(CommandArg.Text)).lower();
+    if (Command == "quit")
+      return Builder.CreateTrunc(
+          Builder.CreateCall(getSdlFn("basic09_sdl_quit", i32Ty(), {})),
+          i16Ty());
+    if (Command == "key")
+      return Builder.CreateTrunc(
+          Builder.CreateCall(getSdlFn("basic09_sdl_key", i32Ty(), {})),
+          i16Ty());
+
+    error(CommandArg, ("unknown SDL query: " + Command).c_str());
+    return nullptr;
   }
 
   bool emitProcedureCall(const ASTNode &Call, const ProcedureInfo &Proc) {
@@ -1406,6 +1697,9 @@ private:
         return nullptr;
       return Builder.CreateFMul(R, coerceScalar(Limit, doubleTy()));
     }
+
+    if (Expr.Text == "SDL")
+      return emitSdlFunction(Expr);
 
     if (Expr.Text == "LEFT$")
       return emitLeft(Expr);
@@ -1863,6 +2157,12 @@ private:
     return M->getOrInsertFunction(Name, FT);
   }
 
+  FunctionCallee getSdlFn(StringRef Name, Type *ReturnTy,
+                          ArrayRef<Type *> ArgTys) {
+    FunctionType *FT = FunctionType::get(ReturnTy, ArgTys, false);
+    return M->getOrInsertFunction(Name, FT);
+  }
+
   FunctionCallee getStrcpy() {
     Type *PtrTy = PointerType::getUnqual(Context);
     FunctionType *FT = FunctionType::get(PtrTy, {PtrTy, PtrTy}, false);
@@ -2029,16 +2329,6 @@ private:
     if (Text.ends_with(":"))
       Text = Text.drop_back();
     return Text.upper();
-  }
-
-  static std::string printUsingLabel(StringRef Text) {
-    size_t Begin = Text.find('\'');
-    if (Begin == StringRef::npos)
-      return std::string();
-    size_t End = Text.find('\'', Begin + 1);
-    if (End == StringRef::npos || End <= Begin + 1)
-      return std::string();
-    return Text.slice(Begin + 1, End).str();
   }
 
   bool constantDataNumber(const ASTNode &Node, double &Result) {

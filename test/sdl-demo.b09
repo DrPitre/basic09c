@@ -1,0 +1,49 @@
+PROCEDURE sdldemo
+DIM frame,i,x,y,dx,dy,color,key,quit:INTEGER
+
+RUN sdl("open",320,200)
+frame:=0
+
+REPEAT
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("clear",0)
+
+RUN sdl("line",0,100,319,100,8)
+RUN sdl("line",160,0,160,199,8)
+
+FOR i:=0 TO 15
+x:=i*20
+RUN sdl("line",x,0,319-x,199,1+MOD(i,15))
+NEXT i
+
+FOR i:=0 TO 23
+y:=i*8
+RUN sdl("line",0,y,319,199-y,1+MOD(i+frame,15))
+NEXT i
+
+FOR i:=0 TO 39
+x:=MOD(i*37+frame*5,320)
+y:=MOD(i*23+frame*3,200)
+color:=1+MOD(i+frame,15)
+RUN sdl("pset",x,y,color)
+RUN sdl("pset",x+1,y,color)
+RUN sdl("pset",x,y+1,color)
+RUN sdl("pset",x+1,y+1,color)
+NEXT i
+
+dx:=frame
+dy:=frame/2
+RUN sdl("line",20+dx,20,300-dx,180,14)
+RUN sdl("line",20,180-dy,300,20+dy,12)
+RUN sdl("line",40+dx,100,280-dx,100,10)
+RUN sdl("line",160,30+dy,160,170-dy,11)
+
+RUN sdl("present")
+RUN sdl("delay",33)
+frame:=frame+1
+UNTIL quit<>0 OR key=27 OR frame>=300
+
+RUN sdl("close")
+END

@@ -7,6 +7,7 @@
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/repeat.b09 | FileCheck %s --check-prefix=REPEAT
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/exit.b09 | FileCheck %s --check-prefix=EXIT
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/tab.b09 | FileCheck %s --check-prefix=TAB
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/sdl.b09 | FileCheck %s --check-prefix=SDL
 # RUN: not basic09c --emit-llvm %t/unsupported.b09 2>&1 | FileCheck %s --check-prefix=ERR
 
 # IR: target triple = "x86_64-apple-macosx14.0.0"
@@ -133,6 +134,19 @@
 # TAB: call i32 (ptr, ...) @printf(ptr
 # TAB: ret i32 0
 
+# SDL: define i32 @sdldemo()
+# SDL: call void @basic09_sdl_open(i32 64, i32 48)
+# SDL: call void @basic09_sdl_poll()
+# SDL: call i32 @basic09_sdl_quit()
+# SDL: call i32 @basic09_sdl_key()
+# SDL: call void @basic09_sdl_clear(i32 0)
+# SDL: call void @basic09_sdl_line(i32 0, i32 0, i32 63, i32 47, i32 15)
+# SDL: call void @basic09_sdl_pset(i32 32, i32 24, i32 12)
+# SDL: call void @basic09_sdl_present()
+# SDL: call void @basic09_sdl_delay(i32 1)
+# SDL: call void @basic09_sdl_close()
+# SDL: ret i32 0
+
 # ERR: error: line 2: statement is not supported by LLVM IR lowering yet: Poke
 
 #--- hello.b09
@@ -178,6 +192,21 @@ END
 #--- tab.b09
 PROCEDURE tab_demo
 PRINT TAB(3);"X"
+END
+
+#--- sdl.b09
+PROCEDURE sdldemo
+DIM quit,key:INTEGER
+RUN sdl("open",64,48)
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("clear",0)
+RUN sdl("line",0,0,63,47,15)
+RUN sdl("pset",32,24,12)
+RUN sdl("present")
+RUN sdl("delay",1)
+RUN sdl("close")
 END
 
 #--- while.b09

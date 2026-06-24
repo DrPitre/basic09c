@@ -29,3 +29,16 @@ host_cc = os.environ.get("CC") or shutil.which("clang") or shutil.which("cc")
 if host_cc:
     config.substitutions.append(("%cc", shlex.quote(host_cc)))
     config.available_features.add("host-cc")
+
+sdl2_config = shutil.which("sdl2-config")
+if sdl2_config:
+    config.available_features.add("sdl2")
+elif shutil.which("pkg-config"):
+    import subprocess
+
+    if subprocess.run(
+        ["pkg-config", "--exists", "sdl2"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode == 0:
+        config.available_features.add("sdl2")
