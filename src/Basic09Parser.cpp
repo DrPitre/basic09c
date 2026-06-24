@@ -715,6 +715,12 @@ void Parser::appendStatementDetails(ASTNode &Node, StringRef Kind,
     return;
   }
 
+  if (Kind == "End") {
+    if (L.size() > 1)
+      appendParsedExpression(Node, "Value", ArrayRef<Token>(L).slice(1));
+    return;
+  }
+
   if (Kind == "Poke") {
     size_t Comma = findTopLevelToken(ArrayRef<Token>(L), ",", 1);
     appendParsedExpression(Node, "Address",

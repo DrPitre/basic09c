@@ -8,6 +8,8 @@
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/exit.b09 | FileCheck %s --check-prefix=EXIT
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/tab.b09 | FileCheck %s --check-prefix=TAB
 # RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/sdl.b09 | FileCheck %s --check-prefix=SDL
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/shell.b09 | FileCheck %s --check-prefix=SHELL
+# RUN: basic09c --emit-llvm --target-triple=x86_64-apple-macosx14.0.0 %t/end-value.b09 | FileCheck %s --check-prefix=ENDVALUE
 # RUN: not basic09c --emit-llvm %t/unsupported.b09 2>&1 | FileCheck %s --check-prefix=ERR
 
 # IR: target triple = "x86_64-apple-macosx14.0.0"
@@ -142,10 +144,25 @@
 # SDL: call void @basic09_sdl_clear(i32 0)
 # SDL: call void @basic09_sdl_line(i32 0, i32 0, i32 63, i32 47, i32 15)
 # SDL: call void @basic09_sdl_pset(i32 32, i32 24, i32 12)
+# SDL: call void @basic09_sdl_fillbox(i32 24, i32 16, i32 8, i32 4, i32 10)
 # SDL: call void @basic09_sdl_present()
 # SDL: call void @basic09_sdl_delay(i32 1)
 # SDL: call void @basic09_sdl_close()
 # SDL: ret i32 0
+
+# SHELL: define i32 @shelldemo()
+# SHELL: call i32 @system(ptr
+# SHELL: ret i32 0
+# SHELL: declare i32 @system(ptr)
+
+# ENDVALUE: define i32 @endtext()
+# ENDVALUE: call i32 (ptr, ...) @printf(ptr {{.*}}, ptr
+# ENDVALUE: call i32 (ptr, ...) @printf(ptr
+# ENDVALUE: ret i32 0
+# ENDVALUE: define i32 @endnumber()
+# ENDVALUE: call i32 (ptr, ...) @printf(ptr {{.*}}, i32 33)
+# ENDVALUE: call i32 (ptr, ...) @printf(ptr
+# ENDVALUE: ret i32 0
 
 # ERR: error: line 2: statement is not supported by LLVM IR lowering yet: Poke
 
@@ -204,10 +221,23 @@ key:=sdl("key")
 RUN sdl("clear",0)
 RUN sdl("line",0,0,63,47,15)
 RUN sdl("pset",32,24,12)
+RUN sdl("fillbox",24,16,8,4,10)
 RUN sdl("present")
 RUN sdl("delay",1)
 RUN sdl("close")
 END
+
+#--- shell.b09
+PROCEDURE shelldemo
+SHELL "echo shell-ir"
+END
+
+#--- end-value.b09
+PROCEDURE endtext
+END "hi"
+
+PROCEDURE endnumber
+END 33
 
 #--- while.b09
 PROCEDURE count_down

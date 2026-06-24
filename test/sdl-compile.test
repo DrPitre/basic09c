@@ -8,6 +8,7 @@
 # visible window. Use test/sdl-demo.b09 directly for an interactive demo.
 # RUN: env SDL_VIDEODRIVER=dummy %t/sdl
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-demo %S/sdl-demo.b09
+# RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-invaders %S/sdl-invaders.b09
 
 # NO-SDL: source uses SDL runtime calls; pass --sdl with --compile
 
@@ -21,6 +22,7 @@ key:=sdl("key")
 RUN sdl("clear",0)
 RUN sdl("line",0,0,63,47,15)
 RUN sdl("pset",32,24,12)
+RUN sdl("fillbox",24,16,8,4,10)
 RUN sdl("present")
 RUN sdl("delay",1)
 RUN sdl("close")

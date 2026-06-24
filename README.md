@@ -96,8 +96,20 @@ Then run the executable normally to open a visible SDL window:
 ./demo
 ```
 
+There is also a converted SDL Invaders demo:
+
+```sh
+build/bin/basic09c --compile --sdl --cc clang -o sdl-invaders test/sdl-invaders.b09
+./sdl-invaders
+```
+
+Controls are `A`/`D` to move, Space to fire, and Escape to quit.
+
 The lit tests use `SDL_VIDEODRIVER=dummy` for headless smoke coverage, so those
 test runs intentionally do not display a window.
+
+`sdl("poll")` is the only SDL command that drains the event queue and updates
+`sdl("quit")` or `sdl("key")`; BASIC09 code owns the event loop.
 
 The `--sdl` option requires SDL2 development flags from `sdl2-config` or
 `pkg-config --cflags --libs sdl2`. On macOS with Homebrew:

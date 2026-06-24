@@ -11,6 +11,10 @@
 # RUN: %t/percent | FileCheck %s --check-prefix=PERCENT
 # RUN: basic09c --compile --cc %cc -o %t/using %t/using.b09
 # RUN: %t/using | FileCheck %s --check-prefix=USING
+# RUN: basic09c --compile --cc %cc -o %t/shell %t/shell.b09
+# RUN: %t/shell | FileCheck %s --check-prefix=SHELL
+# RUN: basic09c --compile --cc %cc -o %t/end-value %t/end-value.b09
+# RUN: %t/end-value | FileCheck %s --check-prefix=ENDVALUE
 # RUN: not basic09c --compile --cc %cc %t/hello.b09 2>&1 | FileCheck %s --check-prefix=NOOUTPUT
 
 # CHECK: Hello from compile mode
@@ -28,6 +32,12 @@
 # USING-NEXT: Term: 5 years
 # USING-NEXT: Money: 123.46
 # USING-NEXT: Principal:  50000.00
+
+# SHELL: shell-ok
+# SHELL-NEXT: after-shell
+
+# ENDVALUE: hi
+# ENDVALUE-NEXT: 33
 
 # NOOUTPUT: error: --compile requires -o <output>
 
@@ -66,3 +76,21 @@ PRINT USING "'Term: ',I1,' years'",5
 PRINT USING "'Money: ',R8.2",123.456
 PRINT USING "'Principal: ',R12.2",50000.0
 END
+
+#--- shell.b09
+PROCEDURE shelldemo
+SHELL "printf 'shell-ok\n'"
+PRINT "after-shell"
+END
+
+#--- end-value.b09
+PROCEDURE endvaluedemo
+RUN endtext
+RUN endnumber
+END
+
+PROCEDURE endtext
+END "hi"
+
+PROCEDURE endnumber
+END 33

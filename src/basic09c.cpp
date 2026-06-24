@@ -456,7 +456,6 @@ void basic09_sdl_open(int width, int height) {
   basic09_sdl_last_key = 0;
   atexit(basic09_sdl_close);
   SDL_ShowWindow(basic09_sdl_window);
-  basic09_sdl_poll();
 }
 
 void basic09_sdl_clear(int color) {
@@ -470,17 +469,10 @@ void basic09_sdl_present(void) {
   if (!basic09_sdl_ready())
     return;
   SDL_RenderPresent(basic09_sdl_renderer);
-  basic09_sdl_poll();
 }
 
 void basic09_sdl_delay(int milliseconds) {
-  int remaining = milliseconds < 0 ? 0 : milliseconds;
-  while (remaining > 0) {
-    int step = remaining < 16 ? remaining : 16;
-    SDL_Delay((unsigned)step);
-    basic09_sdl_poll();
-    remaining -= step;
-  }
+  SDL_Delay(milliseconds < 0 ? 0 : (unsigned)milliseconds);
 }
 
 void basic09_sdl_pset(int x, int y, int color) {
@@ -488,6 +480,14 @@ void basic09_sdl_pset(int x, int y, int color) {
     return;
   basic09_sdl_color(color);
   SDL_RenderDrawPoint(basic09_sdl_renderer, x, y);
+}
+
+void basic09_sdl_fillbox(int x, int y, int width, int height, int color) {
+  if (!basic09_sdl_ready())
+    return;
+  basic09_sdl_color(color);
+  SDL_Rect rect = {x, y, width, height};
+  SDL_RenderFillRect(basic09_sdl_renderer, &rect);
 }
 
 void basic09_sdl_line(int x1, int y1, int x2, int y2, int color) {

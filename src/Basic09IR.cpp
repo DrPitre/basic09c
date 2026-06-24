@@ -297,6 +297,8 @@ private:
       return emitRead(Stmt);
     if (Stmt.Kind == "Input")
       return emitInput(Stmt);
+    if (Stmt.Kind == "Shell")
+      return emitShell(Stmt);
     if (Stmt.Kind == "Label")
       return emitLabel(Stmt);
     if (Stmt.Kind == "BranchTarget")
@@ -313,7 +315,9 @@ private:
       return true;
     if (Stmt.Kind == "Return")
       return emitReturn(Stmt);
-    if (Stmt.Kind == "End" || Stmt.Kind == "Stop") {
+    if (Stmt.Kind == "End")
+      return emitEnd(Stmt);
+    if (Stmt.Kind == "Stop") {
       if (!Builder.GetInsertBlock()->hasTerminator())
         Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
       return true;
@@ -599,6 +603,51 @@ private:
     V = coerceScalar(V, DestTy);
     Builder.CreateStore(V, Local->Slot);
     return true;
+  }
+
+  bool emitShell(const ASTNode &Stmt) {
+    const ASTNode *Argument = firstChildKind(Stmt, "Argument");
+    if (!Argument)
+      return error(Stmt, "SHELL expects a command string");
+    Value *Command = emitExprChild(*Argument);
+    if (!Command)
+      return false;
+    if (!Command->getType()->isPointerTy())
+      return error(*Argument, "SHELL expects a string command");
+    Builder.CreateCall(getSystem(), {Command});
+    return true;
+  }
+
+  bool emitEnd(const ASTNode &Stmt) {
+    if (const ASTNode *EndValue = firstChildKind(Stmt, "Value")) {
+      Value *V = emitExprChild(*EndValue);
+      if (!V)
+        return false;
+      if (!emitPrintValue(*EndValue, V))
+        return false;
+      Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
+    }
+    if (!Builder.GetInsertBlock()->hasTerminator())
+      Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
+    return true;
+  }
+
+  bool emitPrintValue(const ASTNode &At, Value *V) {
+    if (V->getType()->isPointerTy()) {
+      Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%s"), V});
+      return true;
+    }
+    if (V->getType()->isDoubleTy()) {
+      Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%g"), V});
+      return true;
+    }
+    if (V->getType()->isIntegerTy()) {
+      Builder.CreateCall(
+          getPrintf(), {Builder.CreateGlobalString("%d"),
+                        Builder.CreateSExtOrTrunc(V, i32Ty())});
+      return true;
+    }
+    return error(At, "END expression has unsupported IR type");
   }
 
   bool emitPrint(const ASTNode &Stmt) {
@@ -1360,6 +1409,22 @@ private:
           getSdlFn("basic09_sdl_pset", Type::getVoidTy(Context),
                    {i32Ty(), i32Ty(), i32Ty()}),
           {X, Y, Color});
+      return true;
+    }
+    if (Command == "fillbox") {
+      if (Args.size() != 5)
+        return error(Call, "SDL command 'fillbox' expects x, y, width, height, color");
+      Value *X = EmitI32Arg(*Args[0]);
+      Value *Y = EmitI32Arg(*Args[1]);
+      Value *Width = EmitI32Arg(*Args[2]);
+      Value *Height = EmitI32Arg(*Args[3]);
+      Value *Color = EmitI32Arg(*Args[4]);
+      if (!X || !Y || !Width || !Height || !Color)
+        return false;
+      Builder.CreateCall(
+          getSdlFn("basic09_sdl_fillbox", Type::getVoidTy(Context),
+                   {i32Ty(), i32Ty(), i32Ty(), i32Ty(), i32Ty()}),
+          {X, Y, Width, Height, Color});
       return true;
     }
     if (Command == "line") {
@@ -2310,6 +2375,12 @@ private:
     FunctionType *FT =
         FunctionType::get(i32Ty(), PointerType::getUnqual(Context), true);
     return M->getOrInsertFunction("scanf", FT);
+  }
+
+  FunctionCallee getSystem() {
+    FunctionType *FT =
+        FunctionType::get(i32Ty(), PointerType::getUnqual(Context), false);
+    return M->getOrInsertFunction("system", FT);
   }
 
   static int64_t parseInteger(StringRef Text, unsigned Radix) {

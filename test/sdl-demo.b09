@@ -42,6 +42,9 @@ RUN sdl("line",160,30+dy,160,170-dy,11)
 
 RUN sdl("present")
 RUN sdl("delay",33)
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
 frame:=frame+1
 UNTIL quit<>0 OR key=27 OR frame>=300
 

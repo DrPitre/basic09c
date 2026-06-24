@@ -69,6 +69,9 @@
 # CHECK-NEXT: Call "PEEK" @18
 # CHECK-NEXT: Call "ADDR" @18
 # CHECK-NEXT: Var "OPTION" @18
+# CHECK: Shell "SHELL "dir"" @22
+# CHECK-NEXT: Argument ""dir"" @22
+# CHECK-NEXT: String ""dir"" @22
 # CHECK: Bye "BYE" @25
 
 #--- input.b09
