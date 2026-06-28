@@ -347,7 +347,13 @@ private:
         StorageTy = ArrayType::get(StorageTy, Bound + 1);
 
       AllocaInst *Slot = Builder.CreateAlloca(StorageTy, nullptr, Decl->Text);
-      Builder.CreateStore(Constant::getNullValue(StorageTy), Slot);
+      if (isa<ArrayType>(StorageTy)) {
+        uint64_t Size = M->getDataLayout().getTypeAllocSize(StorageTy);
+        Builder.CreateMemSet(Slot, Builder.getInt8(0), Builder.getInt64(Size),
+                             Slot->getAlign());
+      } else {
+        Builder.CreateStore(Constant::getNullValue(StorageTy), Slot);
+      }
       Locals[Decl->Text] = {Slot, StorageTy, ElementTy, Kind, !Bounds.empty(),
                             StringLength};
     }

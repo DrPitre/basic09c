@@ -97,6 +97,11 @@ static cl::opt<std::string>
               cl::value_desc("path"), cl::cat(Basic09CCategory));
 
 static cl::opt<std::string>
+    OptLevel("O", cl::desc("Optimization level for --compile (0, 1, 2, 3, s, z)"),
+             cl::init(""), cl::value_desc("level"), cl::Prefix,
+             cl::cat(Basic09CCategory));
+
+static cl::opt<std::string>
     TargetTriple("target-triple", cl::desc("Target triple for emitted LLVM IR"),
                  cl::init(sys::getDefaultTargetTriple()),
                  cl::cat(Basic09CCategory));
@@ -612,6 +617,7 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     return 1;
   }
 
+  std::string OptLevelArg;
   std::vector<std::string> ArgStorage;
   std::vector<StringRef> Args = {*Compiler, IRPath, MainPath};
   if (EnableSDL) {
@@ -624,6 +630,10 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
       Cleanup();
       return 1;
     }
+  }
+  if (!OptLevel.empty()) {
+    OptLevelArg = "-O" + std::string(OptLevel);
+    Args.push_back(OptLevelArg);
   }
   Args.push_back("-o");
   Args.push_back(OutputFilename);
