@@ -185,7 +185,7 @@ private:
     if (Body && !emitBlock(*Body))
       return false;
 
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
 
     CurrentFunction = nullptr;
@@ -242,7 +242,7 @@ private:
       if (!emitStatement(*Stmt))
         return false;
 
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
 
     CurrentFunction = nullptr;
@@ -318,7 +318,7 @@ private:
     if (Stmt.Kind == "End")
       return emitEnd(Stmt);
     if (Stmt.Kind == "Stop") {
-      if (!Builder.GetInsertBlock()->hasTerminator())
+      if (Builder.GetInsertBlock()->getTerminator() == nullptr)
         Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
       return true;
     }
@@ -369,7 +369,7 @@ private:
     auto It = LabelBlocks.find(Name);
     if (It == LabelBlocks.end())
       return error(Stmt, "unknown label: " + Name);
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(It->second);
     Builder.SetInsertPoint(It->second);
     return true;
@@ -430,7 +430,7 @@ private:
     auto It = LabelBlocks.find(Name);
     if (It == LabelBlocks.end())
       return error(Stmt, "unknown branch target: " + Name);
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(It->second);
     BasicBlock *AfterBranch =
         BasicBlock::Create(Context, "after.branch", CurrentFunction);
@@ -627,7 +627,7 @@ private:
         return false;
       Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
     }
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateRet(ConstantInt::get(i32Ty(), 0));
     return true;
   }
@@ -1070,14 +1070,14 @@ private:
     Builder.SetInsertPoint(ThenBB);
     if (!emitBlock(*ThenBlock))
       return false;
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(MergeBB);
 
     if (ElseBB) {
       Builder.SetInsertPoint(ElseBB);
       if (!emitBlock(*ElseBlock))
         return false;
-      if (!Builder.GetInsertBlock()->hasTerminator())
+      if (Builder.GetInsertBlock()->getTerminator() == nullptr)
         Builder.CreateBr(MergeBB);
     }
 
@@ -1157,7 +1157,7 @@ private:
     if (!emitBlock(*Body))
       return false;
     LoopExits.pop_back();
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(IncBB);
 
     Builder.SetInsertPoint(IncBB);
@@ -1198,7 +1198,7 @@ private:
     if (!emitBlock(*Body))
       return false;
     LoopExits.pop_back();
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(CondBB);
 
     Builder.SetInsertPoint(EndBB);
@@ -1225,7 +1225,7 @@ private:
     if (!emitBlock(*Body))
       return false;
     LoopExits.pop_back();
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(CondBB);
 
     Builder.SetInsertPoint(CondBB);
@@ -1255,7 +1255,7 @@ private:
     if (!emitBlock(*Body))
       return false;
     LoopExits.pop_back();
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(BodyBB);
 
     Builder.SetInsertPoint(EndBB);
@@ -1296,7 +1296,7 @@ private:
     Builder.SetInsertPoint(ThenBB);
     if (Body && !emitBlock(*Body))
       return false;
-    if (!Builder.GetInsertBlock()->hasTerminator())
+    if (Builder.GetInsertBlock()->getTerminator() == nullptr)
       Builder.CreateBr(ExitBB);
 
     Builder.SetInsertPoint(ContBB);
