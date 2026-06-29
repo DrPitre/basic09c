@@ -346,13 +346,25 @@ private:
       for (uint64_t Bound : llvm::reverse(Bounds))
         StorageTy = ArrayType::get(StorageTy, Bound + 1);
 
-      AllocaInst *Slot = Builder.CreateAlloca(StorageTy, nullptr, Decl->Text);
+      AllocaInst *StackSlot = nullptr;
+      Value *Slot = nullptr;
       if (isa<ArrayType>(StorageTy)) {
         uint64_t Size = M->getDataLayout().getTypeAllocSize(StorageTy);
-        Builder.CreateMemSet(Slot, Builder.getInt8(0), Builder.getInt64(Size),
-                             Slot->getAlign());
+        if (Size > 65536) {
+          // Heap-allocate large arrays to avoid stack overflow.
+          Slot = Builder.CreateCall(getCalloc(),
+                                    {ConstantInt::get(i64Ty(), 1),
+                                     ConstantInt::get(i64Ty(), Size)});
+        } else {
+          StackSlot = Builder.CreateAlloca(StorageTy, nullptr, Decl->Text);
+          Builder.CreateMemSet(StackSlot, Builder.getInt8(0),
+                               Builder.getInt64(Size), StackSlot->getAlign());
+          Slot = StackSlot;
+        }
       } else {
-        Builder.CreateStore(Constant::getNullValue(StorageTy), Slot);
+        StackSlot = Builder.CreateAlloca(StorageTy, nullptr, Decl->Text);
+        Builder.CreateStore(Constant::getNullValue(StorageTy), StackSlot);
+        Slot = StackSlot;
       }
       Locals[Decl->Text] = {Slot, StorageTy, ElementTy, Kind, !Bounds.empty(),
                             StringLength};
@@ -1596,6 +1608,8 @@ private:
         return ConstantInt::get(i16Ty(), 0);
       if (Expr.Text == "PI")
         return ConstantFP::get(doubleTy(), 3.14159265358979323846);
+      if (Expr.Text == "DATE$")
+        return emitDate(Expr);
       LocalInfo *Local = getOrCreateScalarLocal(Expr.Text);
       if (!Local)
         return nullptr;
@@ -1794,6 +1808,8 @@ private:
       return emitMod(Expr);
     if (Expr.Text == "LAND" || Expr.Text == "LOR" || Expr.Text == "LXOR")
       return emitBitwiseCall(Expr);
+    if (Expr.Text == "DATE$")
+      return emitDate(Expr);
 
     if (Expr.Children.size() != 1) {
       error(Expr, "builtin call expects one argument: " + Expr.Text);
@@ -1980,6 +1996,17 @@ private:
     return Dest;
   }
 
+  Value *emitDate(const ASTNode &Expr) {
+    Value *TimeVar = createEntryAlloca(i64Ty(), "date.time");
+    Builder.CreateCall(getTimeFunc(), {TimeVar});
+    Value *TmPtr = Builder.CreateCall(getLocaltimeFunc(), {TimeVar});
+    Value *Dest = createTempString();
+    Builder.CreateCall(getStrftimeFunc(),
+                       {Dest, ConstantInt::get(i64Ty(), 256),
+                        Builder.CreateGlobalString("%Y/%m/%d %H:%M:%S"), TmPtr});
+    return Dest;
+  }
+
   Value *emitMod(const ASTNode &Expr) {
     if (Expr.Children.size() != 2) {
       error(Expr, "MOD expects two arguments");
@@ -2080,7 +2107,7 @@ private:
 
   Value *createTempString() {
     AllocaInst *Temp =
-        Builder.CreateAlloca(ArrayType::get(Type::getInt8Ty(Context), 256));
+        createEntryAlloca(ArrayType::get(Type::getInt8Ty(Context), 256), "tmp.str");
     return stringDataPtr(Temp->getAllocatedType(), Temp);
   }
 
@@ -2280,6 +2307,31 @@ private:
     Type *PtrTy = PointerType::getUnqual(Context);
     FunctionType *FT = FunctionType::get(doubleTy(), {PtrTy, PtrTy}, false);
     return M->getOrInsertFunction("strtod", FT);
+  }
+
+  FunctionCallee getTimeFunc() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(i64Ty(), {PtrTy}, false);
+    return M->getOrInsertFunction("time", FT);
+  }
+
+  FunctionCallee getLocaltimeFunc() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(PtrTy, {PtrTy}, false);
+    return M->getOrInsertFunction("localtime", FT);
+  }
+
+  FunctionCallee getStrftimeFunc() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT =
+        FunctionType::get(i64Ty(), {PtrTy, i64Ty(), PtrTy, PtrTy}, false);
+    return M->getOrInsertFunction("strftime", FT);
+  }
+
+  FunctionCallee getCalloc() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(PtrTy, {i64Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("calloc", FT);
   }
 
   bool getBasicType(const ASTNode &Decl, StringRef BasicType, BasicKind &Kind,
