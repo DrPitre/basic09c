@@ -146,11 +146,20 @@ static std::string getProcedureSymbolName(const ASTNode &Procedure) {
   return Text.substr(0, End).lower();
 }
 
-static std::string getEntryProcedureName(const ASTNode &Root) {
+static const ASTNode *getEntryProcedure(const ASTNode &Root) {
   for (const std::unique_ptr<ASTNode> &Child : Root.Children)
     if (Child->Kind == "Procedure")
-      return getProcedureSymbolName(*Child);
-  return "";
+      return Child.get();
+  return nullptr;
+}
+
+static bool entryProcedureHasParams(const ASTNode &Procedure) {
+  for (const std::unique_ptr<ASTNode> &Child : Procedure.Children)
+    if (Child->Kind == "Block")
+      for (const std::unique_ptr<ASTNode> &Stmt : Child->Children)
+        if (Stmt->Kind == "Param")
+          return true;
+  return false;
 }
 
 static bool writeFile(StringRef Path, StringRef Contents) {
@@ -710,10 +719,19 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
   if (!analyzeSemantics(*Root, errs()))
     return 1;
 
-  std::string EntryName = getEntryProcedureName(*Root);
-  if (EntryName.empty()) {
+  const ASTNode *EntryProcedure = getEntryProcedure(*Root);
+  if (!EntryProcedure) {
     WithColor::error(errs(), "basic09c")
         << "no PROCEDURE found for executable entry point\n";
+    return 1;
+  }
+  std::string EntryName = getProcedureSymbolName(*EntryProcedure);
+  if (entryProcedureHasParams(*EntryProcedure)) {
+    WithColor::error(errs(), "basic09c")
+        << "entry procedure '" << EntryName
+        << "' declares PARAM but the executable entry point is always "
+           "called with no arguments; move the entry procedure (with no "
+           "PARAM) to be the first PROCEDURE in the source file\n";
     return 1;
   }
 

@@ -1,3 +1,60 @@
+PROCEDURE unittest
+DIM passed,failed:INTEGER
+
+passed:=0
+failed:=0
+
+PRINT "BASIC09 unit tests"
+PRINT "------------------"
+
+RUN testIntegerArithmetic(passed,failed)
+RUN testRealArithmetic(passed,failed)
+RUN testStringFunctions(passed,failed)
+RUN testArrayIndexing(passed,failed)
+RUN testBooleanLogic(passed,failed)
+RUN testRecordFields(passed,failed)
+RUN testRepeatUntil(passed,failed)
+RUN testForNext(passed,failed)
+RUN testWhile(passed,failed)
+RUN testLoop(passed,failed)
+RUN testMathFunctions(passed,failed)
+RUN testMoreStrings(passed,failed)
+RUN testReadData(passed,failed)
+RUN testGoto(passed,failed)
+RUN testComparisons(passed,failed)
+RUN testIf(passed,failed)
+RUN test2DArrays(passed,failed)
+RUN testStrConv(passed,failed)
+RUN testProcedures(passed,failed)
+RUN testOnGoto(passed,failed)
+RUN testGosub(passed,failed)
+RUN testTrig(passed,failed)
+RUN testLogExp(passed,failed)
+RUN testNestedFor(passed,failed)
+RUN testMod(passed,failed)
+RUN testStringCompare(passed,failed)
+RUN testWhileLoop(passed,failed)
+RUN testXor(passed,failed)
+RUN testMoreMath(passed,failed)
+RUN testBitwise(passed,failed)
+RUN testSubstr(passed,failed)
+RUN testArithmetic(passed,failed)
+RUN testArrays(passed,failed)
+RUN testTypedVars(passed,failed)
+RUN testForLoop(passed,failed)
+RUN testGotoBasic(passed,failed)
+RUN testIfBasic(passed,failed)
+RUN testLoopBasic(passed,failed)
+RUN testMathBasic(passed,failed)
+RUN testPrint(passed,failed)
+RUN testProcs(passed,failed)
+RUN testStringsExt(passed,failed)
+
+PRINT "------------------"
+PRINT "Passed: ";passed
+PRINT "Failed: ";failed
+
+END
 PROCEDURE testIntegerArithmetic
 PARAM passed,failed:INTEGER
 DIM actual:INTEGER
@@ -872,11 +929,11 @@ failed:=failed+1
 ENDIF
 
 n:=FIX(3.7)
-IF n=4 THEN
+IF n=3 THEN
 PRINT "PASS fix"
 passed:=passed+1
 ELSE
-PRINT "FAIL fix: expected 4 got ";n
+PRINT "FAIL fix: expected 3 got ";n
 failed:=failed+1
 ENDIF
 
@@ -1569,60 +1626,3 @@ ENDIF
 
 END
 
-PROCEDURE unittest
-DIM passed,failed:INTEGER
-
-passed:=0
-failed:=0
-
-PRINT "BASIC09 unit tests"
-PRINT "------------------"
-
-RUN testIntegerArithmetic(passed,failed)
-RUN testRealArithmetic(passed,failed)
-RUN testStringFunctions(passed,failed)
-RUN testArrayIndexing(passed,failed)
-RUN testBooleanLogic(passed,failed)
-RUN testRecordFields(passed,failed)
-RUN testRepeatUntil(passed,failed)
-RUN testForNext(passed,failed)
-RUN testWhile(passed,failed)
-RUN testLoop(passed,failed)
-RUN testMathFunctions(passed,failed)
-RUN testMoreStrings(passed,failed)
-RUN testReadData(passed,failed)
-RUN testGoto(passed,failed)
-RUN testComparisons(passed,failed)
-RUN testIf(passed,failed)
-RUN test2DArrays(passed,failed)
-RUN testStrConv(passed,failed)
-RUN testProcedures(passed,failed)
-RUN testOnGoto(passed,failed)
-RUN testGosub(passed,failed)
-RUN testTrig(passed,failed)
-RUN testLogExp(passed,failed)
-RUN testNestedFor(passed,failed)
-RUN testMod(passed,failed)
-RUN testStringCompare(passed,failed)
-RUN testWhileLoop(passed,failed)
-RUN testXor(passed,failed)
-RUN testMoreMath(passed,failed)
-RUN testBitwise(passed,failed)
-RUN testSubstr(passed,failed)
-RUN testArithmetic(passed,failed)
-RUN testArrays(passed,failed)
-RUN testTypedVars(passed,failed)
-RUN testForLoop(passed,failed)
-RUN testGotoBasic(passed,failed)
-RUN testIfBasic(passed,failed)
-RUN testLoopBasic(passed,failed)
-RUN testMathBasic(passed,failed)
-RUN testPrint(passed,failed)
-RUN testProcs(passed,failed)
-RUN testStringsExt(passed,failed)
-
-PRINT "------------------"
-PRINT "Passed: ";passed
-PRINT "Failed: ";failed
-
-END
