@@ -1,0 +1,82 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/text %t/text.b09
+# RUN: %t/text | FileCheck %s --check-prefix=TEXT
+# RUN: basic09c --compile --cc %cc -o %t/binary %t/binary.b09
+# RUN: %t/binary | FileCheck %s --check-prefix=BINARY
+# RUN: basic09c --compile --cc %cc -o %t/eofloop %t/eofloop.b09
+# RUN: %t/eofloop | FileCheck %s --check-prefix=EOFLOOP
+
+# TEXT: 42
+# TEXT-NEXT: 3.25
+# TEXT-NEXT: hello world
+
+# BINARY: 10
+# BINARY-NEXT: 20
+# BINARY-NEXT: 30
+
+# EOFLOOP: one
+# EOFLOOP-NEXT: two
+# EOFLOOP-NEXT: three
+
+#--- text.b09
+PROCEDURE textio
+DIM path:INTEGER
+DIM n:INTEGER
+DIM r:REAL
+DIM s:STRING[40]
+CREATE #path,"text.dat":WRITE
+WRITE #path,42
+WRITE #path,3.25
+WRITE #path,"hello world"
+CLOSE #path
+OPEN #path,"text.dat":READ
+READ #path,n
+PRINT n
+READ #path,r
+PRINT r
+READ #path,s
+PRINT s
+CLOSE #path
+DELETE "text.dat"
+END
+
+#--- binary.b09
+PROCEDURE binio
+DIM path,i:INTEGER
+DIM buf(2):BYTE
+CREATE #path,"binary.dat":UPDATE
+buf(0):=10
+buf(1):=20
+buf(2):=30
+PUT #path,buf
+SEEK #path,0
+FOR i:=0 TO 2
+buf(i):=0
+NEXT i
+GET #path,buf
+FOR i:=0 TO 2
+PRINT buf(i)
+NEXT i
+CLOSE #path
+DELETE "binary.dat"
+END
+
+#--- eofloop.b09
+PROCEDURE eofloop
+DIM path:INTEGER
+DIM line:STRING[40]
+CREATE #path,"lines.dat":WRITE
+WRITE #path,"one"
+WRITE #path,"two"
+WRITE #path,"three"
+CLOSE #path
+OPEN #path,"lines.dat":READ
+WHILE NOT(EOF(#path)) DO
+READ #path,line
+PRINT line
+ENDWHILE
+CLOSE #path
+DELETE "lines.dat"
+END

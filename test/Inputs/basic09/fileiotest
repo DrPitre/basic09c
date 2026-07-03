@@ -1,0 +1,211 @@
+PROCEDURE fileiotest
+DIM passed,failed:INTEGER
+DIM path,i,ok,count:INTEGER
+DIM line1,line2,line3,line:STRING[40]
+DIM buf(4):BYTE
+DIM n:INTEGER
+DIM r:REAL
+DIM files(2):INTEGER
+
+passed:=0
+failed:=0
+
+PRINT "BASIC09 file I/O tests"
+PRINT "----------------------"
+
+// --- CREATE / WRITE# / CLOSE -------------------------------------------
+CREATE #path,"fio_text.dat":WRITE
+WRITE #path,"hello"
+WRITE #path,"world",123
+WRITE #path,3.5
+CLOSE #path
+PRINT "PASS create write close"
+passed:=passed+1
+
+// --- OPEN / READ# / EOF() -----------------------------------------------
+OPEN #path,"fio_text.dat":READ
+READ #path,line1
+READ #path,line2
+READ #path,line3
+
+IF line1="hello" THEN
+PRINT "PASS read line 1"
+passed:=passed+1
+ELSE
+PRINT "FAIL read line 1: got ";line1
+failed:=failed+1
+ENDIF
+
+IF line2="world123" THEN
+PRINT "PASS read line 2 (multi-value write)"
+passed:=passed+1
+ELSE
+PRINT "FAIL read line 2: got ";line2
+failed:=failed+1
+ENDIF
+
+IF line3="3.5" THEN
+PRINT "PASS read line 3 (real value)"
+passed:=passed+1
+ELSE
+PRINT "FAIL read line 3: got ";line3
+failed:=failed+1
+ENDIF
+
+IF EOF(#path) THEN
+PRINT "PASS eof true at end of file"
+passed:=passed+1
+ELSE
+PRINT "FAIL eof true at end of file"
+failed:=failed+1
+ENDIF
+
+CLOSE #path
+
+// --- EOF()-driven read loop ----------------------------------------------
+OPEN #path,"fio_text.dat":READ
+count:=0
+WHILE NOT(EOF(#path)) DO
+READ #path,line
+count:=count+1
+ENDWHILE
+CLOSE #path
+
+IF count=3 THEN
+PRINT "PASS eof loop line count"
+passed:=passed+1
+ELSE
+PRINT "FAIL eof loop line count: expected 3 got ";count
+failed:=failed+1
+ENDIF
+
+// --- Binary GET# / PUT# on a BYTE array ----------------------------------
+CREATE #path,"fio_bin.dat":UPDATE
+buf(0):=10
+buf(1):=20
+buf(2):=30
+buf(3):=40
+buf(4):=50
+PUT #path,buf
+CLOSE #path
+
+OPEN #path,"fio_bin.dat":UPDATE
+FOR i:=0 TO 4
+buf(i):=0
+NEXT i
+GET #path,buf
+
+ok:=1
+IF buf(0)<>10 THEN ok:=0 ENDIF
+IF buf(1)<>20 THEN ok:=0 ENDIF
+IF buf(2)<>30 THEN ok:=0 ENDIF
+IF buf(3)<>40 THEN ok:=0 ENDIF
+IF buf(4)<>50 THEN ok:=0 ENDIF
+
+IF ok=1 THEN
+PRINT "PASS binary put then get roundtrip"
+passed:=passed+1
+ELSE
+PRINT "FAIL binary put then get roundtrip"
+failed:=failed+1
+ENDIF
+
+// --- SEEK ------------------------------------------------------------------
+FOR i:=0 TO 4
+buf(i):=0
+NEXT i
+buf(2):=99
+SEEK #path,0
+PUT #path,buf
+
+SEEK #path,0
+FOR i:=0 TO 4
+buf(i):=0
+NEXT i
+GET #path,buf
+
+IF buf(2)=99 THEN
+PRINT "PASS seek to start then rewrite"
+passed:=passed+1
+ELSE
+PRINT "FAIL seek to start then rewrite: expected 99 got ";buf(2)
+failed:=failed+1
+ENDIF
+
+CLOSE #path
+
+// --- Scalar GET#/PUT# (INTEGER, REAL) --------------------------------------
+CREATE #path,"fio_scalar.dat":UPDATE
+n:=4242
+PUT #path,n
+r:=1.25
+PUT #path,r
+SEEK #path,0
+n:=0
+GET #path,n
+r:=0
+GET #path,r
+
+IF n=4242 THEN
+PRINT "PASS scalar integer put then get"
+passed:=passed+1
+ELSE
+PRINT "FAIL scalar integer put then get: expected 4242 got ";n
+failed:=failed+1
+ENDIF
+
+IF ABS(r-1.25)<.0001 THEN
+PRINT "PASS scalar real put then get"
+passed:=passed+1
+ELSE
+PRINT "FAIL scalar real put then get: expected 1.25 got ";r
+failed:=failed+1
+ENDIF
+
+CLOSE #path
+DELETE "fio_scalar.dat"
+
+// --- Array-indexed path designator (#FILES(n)) ------------------------------
+CREATE #files(1),"fio_indexed.dat":UPDATE
+n:=7
+PUT #files(1),n
+SEEK #files(1),0
+n:=0
+GET #files(1),n
+
+IF n=7 THEN
+PRINT "PASS array-indexed path designator"
+passed:=passed+1
+ELSE
+PRINT "FAIL array-indexed path designator: expected 7 got ";n
+failed:=failed+1
+ENDIF
+
+CLOSE #files(1)
+DELETE "fio_indexed.dat"
+
+// --- DELETE ------------------------------------------------------------------
+CREATE #path,"fio_delete_me.dat":WRITE
+WRITE #path,"temp"
+CLOSE #path
+
+DELETE "fio_delete_me.dat"
+
+OPEN #path,"fio_delete_me.dat":READ
+IF EOF(#path) THEN
+PRINT "PASS delete removed file contents"
+passed:=passed+1
+ELSE
+PRINT "FAIL delete removed file contents"
+failed:=failed+1
+ENDIF
+CLOSE #path
+
+DELETE "fio_text.dat"
+DELETE "fio_bin.dat"
+
+PRINT "----------------------"
+PRINT "Passed: ";passed
+PRINT "Failed: ";failed
+
+END

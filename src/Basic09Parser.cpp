@@ -158,6 +158,8 @@ private:
       consume(")");
       return Inner;
     }
+    if (consume("#"))
+      return parsePrimary();
 
     ++Index;
     switch (Tok.Kind) {

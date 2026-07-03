@@ -504,6 +504,171 @@ void basic09_sdl_line(int x1, int y1, int x2, int y2, int color) {
 )c";
 }
 
+static std::string fileRuntimeSource() {
+  return R"c(
+#include <stdio.h>
+#include <string.h>
+
+#define BASIC09_MAX_FILES 32
+
+static FILE *basic09_file_table[BASIC09_MAX_FILES];
+
+static int basic09_file_alloc_slot(void) {
+  int i;
+  for (i = 1; i < BASIC09_MAX_FILES; ++i) {
+    if (!basic09_file_table[i])
+      return i;
+  }
+  fputs("basic09 file runtime: too many open files\n", stderr);
+  return 0;
+}
+
+static FILE *basic09_file_get_handle(int handle) {
+  if (handle <= 0 || handle >= BASIC09_MAX_FILES || !basic09_file_table[handle]) {
+    fputs("basic09 file runtime: invalid file handle\n", stderr);
+    return NULL;
+  }
+  return basic09_file_table[handle];
+}
+
+int basic09_file_open(const char *name, const char *mode) {
+  int slot = basic09_file_alloc_slot();
+  FILE *fp;
+  if (!slot)
+    return 0;
+  fp = fopen(name, mode);
+  if (!fp) {
+    fprintf(stderr, "basic09 file runtime: cannot open '%s'\n", name);
+    return 0;
+  }
+  basic09_file_table[slot] = fp;
+  return slot;
+}
+
+void basic09_file_close(int handle) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fclose(fp);
+  basic09_file_table[handle] = NULL;
+}
+
+void basic09_file_delete(const char *name) {
+  remove(name);
+}
+
+void basic09_file_seek(int handle, long long position) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fseek(fp, (long)position, SEEK_SET);
+}
+
+void basic09_file_get(int handle, void *buffer, long long size) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fread(buffer, 1, (size_t)size, fp);
+}
+
+void basic09_file_put(int handle, const void *buffer, long long size) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fwrite(buffer, 1, (size_t)size, fp);
+}
+
+void basic09_file_write_str(int handle, const char *text) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fputs(text, fp);
+}
+
+void basic09_file_write_real(int handle, double value) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fprintf(fp, "%g", value);
+}
+
+void basic09_file_write_int(int handle, long long value) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fprintf(fp, "%lld", value);
+}
+
+void basic09_file_newline(int handle) {
+  FILE *fp = basic09_file_get_handle(handle);
+  if (!fp)
+    return;
+  fputc('\n', fp);
+}
+
+void basic09_file_readline(int handle, char *buffer, int capacity) {
+  FILE *fp = basic09_file_get_handle(handle);
+  size_t len;
+  if (!fp) {
+    buffer[0] = '\0';
+    return;
+  }
+  if (!fgets(buffer, capacity, fp)) {
+    buffer[0] = '\0';
+    return;
+  }
+  len = strlen(buffer);
+  while (len > 0 && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+    buffer[--len] = '\0';
+  }
+}
+
+static void basic09_file_skip_eol(FILE *fp) {
+  int ch;
+  while ((ch = fgetc(fp)) != EOF && ch != '\n') {
+  }
+}
+
+double basic09_file_read_real(int handle) {
+  FILE *fp = basic09_file_get_handle(handle);
+  double value = 0.0;
+  if (!fp)
+    return 0.0;
+  if (fscanf(fp, "%lf", &value) != 1) {
+    basic09_file_skip_eol(fp);
+    return 0.0;
+  }
+  basic09_file_skip_eol(fp);
+  return value;
+}
+
+long long basic09_file_read_int(int handle) {
+  FILE *fp = basic09_file_get_handle(handle);
+  long long value = 0;
+  if (!fp)
+    return 0;
+  if (fscanf(fp, "%lld", &value) != 1) {
+    basic09_file_skip_eol(fp);
+    return 0;
+  }
+  basic09_file_skip_eol(fp);
+  return value;
+}
+
+int basic09_file_eof(int handle) {
+  FILE *fp = basic09_file_get_handle(handle);
+  int ch;
+  if (!fp)
+    return 1;
+  ch = fgetc(fp);
+  if (ch == EOF)
+    return 1;
+  ungetc(ch, fp);
+  return 0;
+}
+)c";
+}
+
 static std::vector<std::string> splitCommandLineWords(StringRef Text) {
   std::vector<std::string> Words;
   std::istringstream IS(Text.str());
@@ -567,6 +732,7 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
   SmallString<128> IRPath;
   SmallString<128> MainPath;
   SmallString<128> SDLRuntimePath;
+  SmallString<128> FileRuntimePath;
   if (!createTempFile("basic09c", "ll", IRPath))
     return 1;
   if (!createTempFile("basic09c-main", "c", MainPath)) {
@@ -578,12 +744,20 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     sys::fs::remove(MainPath);
     return 1;
   }
+  if (!createTempFile("basic09c-file", "c", FileRuntimePath)) {
+    sys::fs::remove(IRPath);
+    sys::fs::remove(MainPath);
+    if (!SDLRuntimePath.empty())
+      sys::fs::remove(SDLRuntimePath);
+    return 1;
+  }
 
   auto Cleanup = [&]() {
     sys::fs::remove(IRPath);
     sys::fs::remove(MainPath);
     if (!SDLRuntimePath.empty())
       sys::fs::remove(SDLRuntimePath);
+    sys::fs::remove(FileRuntimePath);
   };
 
   if (!writeFile(IRPath, IR)) {
@@ -607,6 +781,10 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     Cleanup();
     return 1;
   }
+  if (!writeFile(FileRuntimePath, fileRuntimeSource())) {
+    Cleanup();
+    return 1;
+  }
 
   ErrorOr<std::string> Compiler = sys::findProgramByName(CCompiler);
   if (!Compiler) {
@@ -619,7 +797,7 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
 
   std::string OptLevelArg;
   std::vector<std::string> ArgStorage;
-  std::vector<StringRef> Args = {*Compiler, IRPath, MainPath};
+  std::vector<StringRef> Args = {*Compiler, IRPath, MainPath, FileRuntimePath};
   if (EnableSDL) {
     Args.push_back(SDLRuntimePath);
     ArgStorage = getSDLCompilerFlags();

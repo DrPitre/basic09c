@@ -299,6 +299,24 @@ private:
       return emitInput(Stmt);
     if (Stmt.Kind == "Shell")
       return emitShell(Stmt);
+    if (Stmt.Kind == "Open")
+      return emitOpen(Stmt);
+    if (Stmt.Kind == "Create")
+      return emitCreate(Stmt);
+    if (Stmt.Kind == "Close")
+      return emitClose(Stmt);
+    if (Stmt.Kind == "Delete")
+      return emitDelete(Stmt);
+    if (Stmt.Kind == "Seek")
+      return emitSeek(Stmt);
+    if (Stmt.Kind == "GetFile")
+      return emitGetFile(Stmt);
+    if (Stmt.Kind == "PutFile")
+      return emitPutFile(Stmt);
+    if (Stmt.Kind == "ReadFile")
+      return emitReadFile(Stmt);
+    if (Stmt.Kind == "WriteFile")
+      return emitWriteFile(Stmt);
     if (Stmt.Kind == "Label")
       return emitLabel(Stmt);
     if (Stmt.Kind == "BranchTarget")
@@ -633,6 +651,231 @@ private:
     if (!Command->getType()->isPointerTy())
       return error(*Argument, "SHELL expects a string command");
     Builder.CreateCall(getSystem(), {Command});
+    return true;
+  }
+
+  Value *emitPathHandle(const ASTNode &PathNode) {
+    Value *V = emitExprChild(PathNode);
+    if (!V)
+      return nullptr;
+    return coerceScalar(V, i32Ty());
+  }
+
+  static std::string fileOpenMode(bool ForCreate, StringRef ModeText) {
+    std::string Mode = ModeText.upper();
+    if (ForCreate)
+      return Mode == "UPDATE" ? "w+b" : "wb";
+    return (Mode == "WRITE" || Mode == "UPDATE") ? "r+b" : "rb";
+  }
+
+  bool emitOpenOrCreate(const ASTNode &Stmt, bool ForCreate) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    const ASTNode *FileName = firstChildKind(Stmt, "FileName");
+    const ASTNode *Mode = firstChildKind(Stmt, "Mode");
+    if (!PathNode || !FileName)
+      return error(Stmt, Stmt.Kind + " requires a path and file name");
+    Value *NameVal = emitExprChild(*FileName);
+    if (!NameVal)
+      return false;
+    if (!NameVal->getType()->isPointerTy())
+      return error(*FileName, Stmt.Kind + " expects a string file name");
+    std::string ModeStr =
+        fileOpenMode(ForCreate, Mode ? StringRef(Mode->Text) : "");
+    Value *Handle = Builder.CreateCall(
+        getFileOpenFn(), {NameVal, Builder.CreateGlobalString(ModeStr)});
+    return emitStoreDesignator(PathNode->Text, Handle, *PathNode);
+  }
+
+  bool emitOpen(const ASTNode &Stmt) { return emitOpenOrCreate(Stmt, false); }
+  bool emitCreate(const ASTNode &Stmt) { return emitOpenOrCreate(Stmt, true); }
+
+  bool emitClose(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    if (!PathNode)
+      return error(Stmt, "CLOSE requires a path");
+    Value *Handle = emitPathHandle(*PathNode);
+    if (!Handle)
+      return false;
+    Builder.CreateCall(getFileCloseFn(), {Handle});
+    return true;
+  }
+
+  bool emitDelete(const ASTNode &Stmt) {
+    const ASTNode *Argument = firstChildKind(Stmt, "Argument");
+    if (!Argument)
+      return error(Stmt, "DELETE requires a file name");
+    Value *NameVal = emitExprChild(*Argument);
+    if (!NameVal)
+      return false;
+    if (!NameVal->getType()->isPointerTy())
+      return error(*Argument, "DELETE expects a string file name");
+    Builder.CreateCall(getFileDeleteFn(), {NameVal});
+    return true;
+  }
+
+  bool emitSeek(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    const ASTNode *Position = firstChildKind(Stmt, "Position");
+    if (!PathNode || !Position)
+      return error(Stmt, "SEEK requires a path and position");
+    Value *Handle = emitPathHandle(*PathNode);
+    Value *Pos = emitExprChild(*Position);
+    if (!Handle || !Pos)
+      return false;
+    Pos = coerceScalar(Pos, i64Ty());
+    Builder.CreateCall(getFileSeekFn(), {Handle, Pos});
+    return true;
+  }
+
+  Value *resolveBufferPtr(StringRef Designator, const ASTNode &At,
+                          uint64_t &Size) {
+    if (Designator.contains("(")) {
+      StringRef Name = arrayDesignatorName(Designator);
+      auto It = Locals.find(Name);
+      if (It == Locals.end() || !It->second.IsArray) {
+        error(At, ("unknown array: " + Name).str());
+        return nullptr;
+      }
+      Value *Ptr = emitArrayElementPtr(Designator, At);
+      if (!Ptr)
+        return nullptr;
+      Type *ElemTy = recordFieldName(Designator).empty() ? It->second.ElementTy
+                                                         : doubleTy();
+      Size = M->getDataLayout().getTypeAllocSize(ElemTy);
+      return Ptr;
+    }
+    auto It = Locals.find(Designator);
+    if (It != Locals.end() && It->second.IsArray) {
+      Size = M->getDataLayout().getTypeAllocSize(It->second.StorageTy);
+      return It->second.Slot;
+    }
+    LocalInfo *Local = getOrCreateScalarLocal(Designator);
+    if (!Local)
+      return nullptr;
+    Size = M->getDataLayout().getTypeAllocSize(Local->ElementTy);
+    return Local->Slot;
+  }
+
+  bool emitGetFile(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    const ASTNode *Target = firstChildKind(Stmt, "Target");
+    if (!PathNode || !Target)
+      return error(Stmt, "GET requires a path and target");
+    Value *Handle = emitPathHandle(*PathNode);
+    if (!Handle)
+      return false;
+    uint64_t Size = 0;
+    Value *Ptr = resolveBufferPtr(Target->Text, *Target, Size);
+    if (!Ptr)
+      return false;
+    Builder.CreateCall(getFileGetFn(),
+                       {Handle, Ptr, ConstantInt::get(i64Ty(), Size)});
+    return true;
+  }
+
+  bool emitPutFile(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    const ASTNode *ValueNode = firstChildKind(Stmt, "Value");
+    if (!PathNode || !ValueNode)
+      return error(Stmt, "PUT requires a path and value");
+    Value *Handle = emitPathHandle(*PathNode);
+    if (!Handle)
+      return false;
+    uint64_t Size = 0;
+    Value *Ptr = resolveBufferPtr(ValueNode->Text, *ValueNode, Size);
+    if (!Ptr)
+      return false;
+    Builder.CreateCall(getFilePutFn(),
+                       {Handle, Ptr, ConstantInt::get(i64Ty(), Size)});
+    return true;
+  }
+
+  bool emitWriteFile(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    if (!PathNode)
+      return error(Stmt, "WRITE requires a path");
+    Value *Handle = emitPathHandle(*PathNode);
+    if (!Handle)
+      return false;
+    for (const std::unique_ptr<ASTNode> &Item : Stmt.Children) {
+      if (Item->Kind != "Value")
+        continue;
+      Value *V = emitExprChild(*Item);
+      if (!V)
+        return false;
+      if (V->getType()->isPointerTy()) {
+        Builder.CreateCall(getFileWriteStrFn(), {Handle, V});
+      } else if (V->getType()->isDoubleTy()) {
+        Builder.CreateCall(getFileWriteRealFn(), {Handle, V});
+      } else if (V->getType()->isIntegerTy()) {
+        Builder.CreateCall(getFileWriteIntFn(),
+                           {Handle, Builder.CreateSExtOrTrunc(V, i64Ty())});
+      } else {
+        return error(*Item, "WRITE expression has unsupported IR type");
+      }
+    }
+    Builder.CreateCall(getFileNewlineFn(), {Handle});
+    return true;
+  }
+
+  bool emitReadFileDesignator(Value *Handle, StringRef Designator,
+                              const ASTNode &At) {
+    LocalInfo *Local = nullptr;
+    Value *Ptr = nullptr;
+    Type *ElemTy = nullptr;
+    BasicKind Kind = BasicKind::Integer;
+
+    if (Designator.contains("(")) {
+      StringRef Name = arrayDesignatorName(Designator);
+      auto It = Locals.find(Name);
+      if (It == Locals.end() || !It->second.IsArray)
+        return error(At, ("unknown array: " + Name).str());
+      Local = &It->second;
+      Ptr = emitArrayElementPtr(Designator, At);
+      ElemTy = recordFieldName(Designator).empty() ? Local->ElementTy
+                                                   : doubleTy();
+      Kind = Local->Kind;
+    } else {
+      Local = getOrCreateScalarLocal(Designator);
+      if (!Local)
+        return false;
+      Ptr = Local->Slot;
+      ElemTy = Local->ElementTy;
+      Kind = Local->Kind;
+    }
+    if (!Ptr)
+      return false;
+
+    if (Kind == BasicKind::String) {
+      Value *Data = stringDataPtr(ElemTy, Ptr);
+      uint64_t Capacity = cast<ArrayType>(ElemTy)->getNumElements();
+      Builder.CreateCall(getFileReadLineFn(),
+                         {Handle, Data, ConstantInt::get(i32Ty(), Capacity)});
+      return true;
+    }
+    if (ElemTy->isDoubleTy()) {
+      Value *V = Builder.CreateCall(getFileReadRealFn(), {Handle});
+      Builder.CreateStore(V, Ptr);
+      return true;
+    }
+    Value *V = Builder.CreateCall(getFileReadIntFn(), {Handle});
+    Builder.CreateStore(coerceScalar(V, ElemTy), Ptr);
+    return true;
+  }
+
+  bool emitReadFile(const ASTNode &Stmt) {
+    const ASTNode *PathNode = firstChildKind(Stmt, "Path");
+    if (!PathNode)
+      return error(Stmt, "READ requires a path");
+    Value *Handle = emitPathHandle(*PathNode);
+    if (!Handle)
+      return false;
+    for (const std::unique_ptr<ASTNode> &Target : Stmt.Children) {
+      if (Target->Kind != "Target")
+        continue;
+      if (!emitReadFileDesignator(Handle, Target->Text, *Target))
+        return false;
+    }
     return true;
   }
 
@@ -1810,6 +2053,8 @@ private:
       return emitBitwiseCall(Expr);
     if (Expr.Text == "DATE$")
       return emitDate(Expr);
+    if (Expr.Text == "EOF")
+      return emitEof(Expr);
 
     if (Expr.Children.size() != 1) {
       error(Expr, "builtin call expects one argument: " + Expr.Text);
@@ -2005,6 +2250,19 @@ private:
                        {Dest, ConstantInt::get(i64Ty(), 256),
                         Builder.CreateGlobalString("%Y/%m/%d %H:%M:%S"), TmPtr});
     return Dest;
+  }
+
+  Value *emitEof(const ASTNode &Expr) {
+    if (Expr.Children.size() != 1) {
+      error(Expr, "EOF expects one argument");
+      return nullptr;
+    }
+    Value *Handle = emitExpr(*Expr.Children.front());
+    if (!Handle)
+      return nullptr;
+    Handle = coerceScalar(Handle, i32Ty());
+    Value *Result = Builder.CreateCall(getFileEofFn(), {Handle});
+    return Builder.CreateSExtOrTrunc(Result, i16Ty());
   }
 
   Value *emitMod(const ASTNode &Expr) {
@@ -2439,6 +2697,89 @@ private:
     FunctionType *FT =
         FunctionType::get(i32Ty(), PointerType::getUnqual(Context), false);
     return M->getOrInsertFunction("system", FT);
+  }
+
+  FunctionCallee getFileOpenFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(i32Ty(), {PtrTy, PtrTy}, false);
+    return M->getOrInsertFunction("basic09_file_open", FT);
+  }
+
+  FunctionCallee getFileCloseFn() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context), {i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_close", FT);
+  }
+
+  FunctionCallee getFileDeleteFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context), {PtrTy}, false);
+    return M->getOrInsertFunction("basic09_file_delete", FT);
+  }
+
+  FunctionCallee getFileSeekFn() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_seek", FT);
+  }
+
+  FunctionCallee getFileGetFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), PtrTy, i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_get", FT);
+  }
+
+  FunctionCallee getFilePutFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), PtrTy, i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_put", FT);
+  }
+
+  FunctionCallee getFileWriteStrFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), PtrTy}, false);
+    return M->getOrInsertFunction("basic09_file_write_str", FT);
+  }
+
+  FunctionCallee getFileWriteRealFn() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), doubleTy()}, false);
+    return M->getOrInsertFunction("basic09_file_write_real", FT);
+  }
+
+  FunctionCallee getFileWriteIntFn() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_write_int", FT);
+  }
+
+  FunctionCallee getFileNewlineFn() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context), {i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_newline", FT);
+  }
+
+  FunctionCallee getFileReadLineFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context),
+                                        {i32Ty(), PtrTy, i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_readline", FT);
+  }
+
+  FunctionCallee getFileReadRealFn() {
+    FunctionType *FT = FunctionType::get(doubleTy(), {i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_read_real", FT);
+  }
+
+  FunctionCallee getFileReadIntFn() {
+    FunctionType *FT = FunctionType::get(i64Ty(), {i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_read_int", FT);
+  }
+
+  FunctionCallee getFileEofFn() {
+    FunctionType *FT = FunctionType::get(i32Ty(), {i32Ty()}, false);
+    return M->getOrInsertFunction("basic09_file_eof", FT);
   }
 
   static int64_t parseInteger(StringRef Text, unsigned Radix) {
