@@ -151,6 +151,7 @@ private:
   AllocaInst *GosubStack = nullptr;
   AllocaInst *GosubSP = nullptr;
   size_t DataCursor = 0;
+  BasicBlock *ErrorTrapBlock = nullptr;
 
   Type *i16Ty() { return Type::getInt16Ty(Context); }
   Type *i32Ty() { return Type::getInt32Ty(Context); }
@@ -216,6 +217,7 @@ private:
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     DataCursor = 0;
+    ErrorTrapBlock = nullptr;
     initializeGosubStack();
 
     unsigned Index = 0;
@@ -246,6 +248,7 @@ private:
     GosubStack = nullptr;
     GosubSP = nullptr;
     DataCursor = 0;
+    ErrorTrapBlock = nullptr;
     return true;
   }
 
@@ -285,6 +288,7 @@ private:
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     DataCursor = 0;
+    ErrorTrapBlock = nullptr;
     initializeGosubStack();
 
     for (const ASTNode *Stmt : Statements)
@@ -303,6 +307,7 @@ private:
     GosubStack = nullptr;
     GosubSP = nullptr;
     DataCursor = 0;
+    ErrorTrapBlock = nullptr;
     return true;
   }
 
@@ -374,6 +379,10 @@ private:
       return emitBranchStatement(Stmt);
     if (Stmt.Kind == "Gosub")
       return emitGosub(Stmt);
+    if (Stmt.Kind == "OnErrorGoto")
+      return emitOnErrorGoto(Stmt);
+    if (Stmt.Kind == "OnError")
+      return emitOnErrorClear(Stmt);
     if (Stmt.Kind == "OnGoto" || Stmt.Kind == "OnGosub")
       return emitComputedBranch(Stmt);
     if (Stmt.Kind == "Type" || Stmt.Kind == "Param")
@@ -482,6 +491,35 @@ private:
     Builder.CreateBr(TargetBB);
     Builder.SetInsertPoint(ReturnBB);
     return true;
+  }
+
+  bool emitOnErrorGoto(const ASTNode &Stmt) {
+    const ASTNode *Target = firstChildKind(Stmt, "BranchTarget");
+    if (!Target)
+      return error(Stmt, "ON ERROR GOTO is missing a target");
+    BasicBlock *TargetBB = lookupLabel(*Target);
+    if (!TargetBB)
+      return false;
+    ErrorTrapBlock = TargetBB;
+    return true;
+  }
+
+  bool emitOnErrorClear(const ASTNode &Stmt) {
+    ErrorTrapBlock = nullptr;
+    return true;
+  }
+
+  // If an ON ERROR GOTO trap is armed, branches to the handler when Failed is
+  // true; otherwise falls through. No-op when no trap is armed, since the
+  // underlying runtime call already degrades gracefully (matches the classic
+  // OS-9 BASIC09 catch-and-continue semantics from ON ERROR GOTO/ON ERROR).
+  void emitErrorTrapCheck(Value *Failed) {
+    if (!ErrorTrapBlock)
+      return;
+    BasicBlock *Continue =
+        BasicBlock::Create(Context, "noerr", CurrentFunction);
+    Builder.CreateCondBr(Failed, ErrorTrapBlock, Continue);
+    Builder.SetInsertPoint(Continue);
   }
 
   bool emitComputedBranch(const ASTNode &Stmt) {
@@ -727,7 +765,9 @@ private:
       return false;
     if (!Command->getType()->isPointerTy())
       return error(*Argument, "SHELL expects a string command");
-    Builder.CreateCall(getSystem(), {Command});
+    Value *Status = Builder.CreateCall(getSystem(), {Command});
+    Value *Failed = Builder.CreateICmpNE(Status, ConstantInt::get(i32Ty(), 0));
+    emitErrorTrapCheck(Failed);
     return true;
   }
 
@@ -760,7 +800,11 @@ private:
         fileOpenMode(ForCreate, Mode ? StringRef(Mode->Text) : "");
     Value *Handle = Builder.CreateCall(
         getFileOpenFn(), {NameVal, Builder.CreateGlobalString(ModeStr)});
-    return emitStoreDesignator(*PathNode, Handle);
+    if (!emitStoreDesignator(*PathNode, Handle))
+      return false;
+    Value *Failed = Builder.CreateICmpEQ(Handle, ConstantInt::get(i32Ty(), 0));
+    emitErrorTrapCheck(Failed);
+    return true;
   }
 
   bool emitOpen(const ASTNode &Stmt) { return emitOpenOrCreate(Stmt, false); }
