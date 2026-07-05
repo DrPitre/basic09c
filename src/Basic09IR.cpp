@@ -1160,8 +1160,7 @@ private:
       } else if (V->getType()->isDoubleTy()) {
         Builder.CreateCall(getFileWriteRealFn(), {Handle, V});
       } else if (V->getType()->isIntegerTy()) {
-        Builder.CreateCall(getFileWriteIntFn(),
-                           {Handle, Builder.CreateSExtOrTrunc(V, i64Ty())});
+        Builder.CreateCall(getFileWriteIntFn(), {Handle, coerceScalar(V, i64Ty())});
       } else {
         return error(*Item, "WRITE expression has unsupported IR type");
       }
@@ -1238,9 +1237,8 @@ private:
       return true;
     }
     if (V->getType()->isIntegerTy()) {
-      Builder.CreateCall(
-          getPrintf(), {Builder.CreateGlobalString("%d"),
-                        Builder.CreateSExtOrTrunc(V, i32Ty())});
+      Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%d"),
+                                       coerceScalar(V, i32Ty())});
       return true;
     }
     return error(At, "END expression has unsupported IR type");
@@ -1278,7 +1276,7 @@ private:
         if (needsNumericSpacerBeforeNextItem(Stmt, I))
           Builder.CreateCall(Printf, {Builder.CreateGlobalString(" ")});
       } else if (V->getType()->isIntegerTy()) {
-        V = Builder.CreateSExtOrTrunc(V, i32Ty());
+        V = coerceScalar(V, i32Ty());
         Builder.CreateCall(Printf, {Builder.CreateGlobalString("%d"), V});
         if (needsNumericSpacerBeforeNextItem(Stmt, I))
           Builder.CreateCall(Printf, {Builder.CreateGlobalString(" ")});
@@ -1501,7 +1499,7 @@ private:
         Builder.CreateCall(
             getPrintf(),
             {Builder.CreateGlobalString("%d"),
-             Builder.CreateSExtOrTrunc(V, i32Ty())});
+             coerceScalar(V, i32Ty())});
     }
     if (shouldPrintNewline(Stmt))
       Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
@@ -1562,7 +1560,7 @@ private:
       return true;
     }
     if (ElemTy->isIntegerTy(8)) {
-      Builder.CreateCall(getScanf(), {Builder.CreateGlobalString("%hhd"), Ptr});
+      Builder.CreateCall(getScanf(), {Builder.CreateGlobalString("%hhu"), Ptr});
       return true;
     }
     Builder.CreateCall(getScanf(), {Builder.CreateGlobalString("%hd"), Ptr});
@@ -2662,13 +2660,24 @@ private:
     return Builder.CreateSExtOrTrunc(V, Ty);
   }
 
+  // BYTE is represented as a bare (scalar) i8; strings are always i8
+  // *arrays*, so any scalar i8 Value here is unambiguously a BYTE, whose
+  // BASIC09 semantics are unsigned (0-255), unlike LLVM's signed-by-default
+  // int-widening instructions.
   Value *coerceScalar(Value *V, Type *Ty) {
     if (V->getType() == Ty)
       return V;
+    if (Ty->isDoubleTy() && V->getType()->isIntegerTy(8))
+      return Builder.CreateUIToFP(V, Ty);
     if (Ty->isDoubleTy() && V->getType()->isIntegerTy())
       return Builder.CreateSIToFP(V, Ty);
+    if (Ty->isIntegerTy(8) && V->getType()->isDoubleTy())
+      return Builder.CreateFPToUI(V, Ty);
     if (Ty->isIntegerTy() && V->getType()->isDoubleTy())
       return Builder.CreateFPToSI(V, Ty);
+    if (Ty->isIntegerTy() && V->getType()->isIntegerTy(8) &&
+        Ty->getIntegerBitWidth() > 8)
+      return Builder.CreateZExt(V, Ty);
     if (Ty->isIntegerTy() && V->getType()->isIntegerTy())
       return Builder.CreateSExtOrTrunc(V, Ty);
     return Constant::getNullValue(Ty);

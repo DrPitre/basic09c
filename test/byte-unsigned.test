@@ -1,0 +1,44 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/byteunsigned %t/byteunsigned.b09
+# RUN: %t/byteunsigned | FileCheck %s
+
+# CHECK: 200
+# CHECK-NEXT: 200
+# CHECK-NEXT: 200
+# CHECK-NEXT: UNSIGNED CMP OK
+# CHECK-NEXT: 200
+
+#--- byteunsigned.b09
+PROCEDURE byteunsigned
+DIM b:BYTE
+DIM i:INTEGER
+DIM r:REAL
+DIM d:BYTE
+
+REM BYTE is unsigned (0-255); values above 127 must not print negative
+b := 200
+PRINT b
+
+REM widening a BYTE to INTEGER/REAL must zero-extend, not sign-extend
+i := b
+PRINT i
+
+r := b
+PRINT r
+
+REM comparisons on a BYTE with the high bit set must be unsigned
+IF b > 100 THEN
+PRINT "UNSIGNED CMP OK"
+ELSE
+PRINT "SIGNED CMP BUG"
+ENDIF
+
+REM READ into a BYTE must also treat the value as unsigned
+READ d
+PRINT d
+
+DATA 200
+
+END
