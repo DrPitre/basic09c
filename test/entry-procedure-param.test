@@ -1,0 +1,24 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/entryparam %t/entryparam.b09
+# RUN: not %t/entryparam 2>&1 | FileCheck --check-prefix=USAGE %s
+# RUN: %t/entryparam 42 3.5 hello 200 | FileCheck --check-prefix=OUTPUT %s
+
+# USAGE: usage:{{.*}}entryparam <N> <F> <S> <B>
+
+# OUTPUT: 42
+# OUTPUT-NEXT: 3.5
+# OUTPUT-NEXT: hello
+# OUTPUT-NEXT: 200
+
+#--- entryparam.b09
+PROCEDURE entryparam
+REM the entry procedure may declare PARAM; the executable reads the
+REM values positionally from argv and prints usage if too few are given
+PARAM n:INTEGER; f:REAL; s:STRING; b:BYTE
+PRINT n
+PRINT f
+PRINT s
+PRINT b
+END

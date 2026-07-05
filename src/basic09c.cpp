@@ -153,13 +153,86 @@ static const ASTNode *getEntryProcedure(const ASTNode &Root) {
   return nullptr;
 }
 
-static bool entryProcedureHasParams(const ASTNode &Procedure) {
+// The entry procedure's PARAM list becomes the executable's command-line
+// arguments. Only scalar types have an obvious textual representation on
+// the command line, so arrays and RECORD-typed params are rejected here.
+struct EntryParamInfo {
+  std::string Name;
+  std::string TypeName;
+  uint64_t StringLength = 255;
+};
+
+static uint64_t constantBoundExtent(const ASTNode &BoundNode) {
+  if (BoundNode.Children.empty())
+    return 0;
+  const ASTNode &Expr = *BoundNode.Children.front();
+  uint64_t Value = 0;
+  if (Expr.Kind == "Integer")
+    StringRef(Expr.Text).getAsInteger(10, Value);
+  else if (Expr.Kind == "HexInteger")
+    StringRef(Expr.Text).drop_front().getAsInteger(16, Value);
+  return Value;
+}
+
+static bool isScalarEntryParamType(StringRef TypeName) {
+  return TypeName == "BYTE" || TypeName == "INTEGER" ||
+         TypeName == "BOOLEAN" || TypeName == "REAL" || TypeName == "STRING";
+}
+
+// C type matching the LLVM IR representation of each BASIC09 scalar type
+// (BYTE = i8, INTEGER/BOOLEAN = i16, REAL = double), so the argv-parsing
+// wrapper's pointers line up byte-for-byte with what the compiled
+// procedure expects.
+static const char *entryParamCType(const EntryParamInfo &Param) {
+  if (Param.TypeName == "BYTE")
+    return "unsigned char";
+  if (Param.TypeName == "REAL")
+    return "double";
+  if (Param.TypeName == "STRING")
+    return "char";
+  return "short";
+}
+
+static bool collectEntryParams(const ASTNode &Procedure,
+                               std::vector<EntryParamInfo> &Params,
+                               std::string &BadParamName) {
+  const ASTNode *Body = nullptr;
   for (const std::unique_ptr<ASTNode> &Child : Procedure.Children)
     if (Child->Kind == "Block")
-      for (const std::unique_ptr<ASTNode> &Stmt : Child->Children)
-        if (Stmt->Kind == "Param")
-          return true;
-  return false;
+      Body = Child.get();
+  if (!Body)
+    return true;
+
+  for (const std::unique_ptr<ASTNode> &Stmt : Body->Children) {
+    if (Stmt->Kind != "Param")
+      continue;
+    for (const std::unique_ptr<ASTNode> &Decl : Stmt->Children) {
+      if (Decl->Kind != "Decl")
+        continue;
+      bool HasBound = false;
+      const ASTNode *TypeName = nullptr;
+      for (const std::unique_ptr<ASTNode> &DeclChild : Decl->Children) {
+        if (DeclChild->Kind == "Bound")
+          HasBound = true;
+        else if (DeclChild->Kind == "TypeName")
+          TypeName = DeclChild.get();
+      }
+      std::string Type = TypeName ? TypeName->Text : "INTEGER";
+      if (HasBound || !isScalarEntryParamType(Type)) {
+        BadParamName = Decl->Text;
+        return false;
+      }
+      EntryParamInfo Info;
+      Info.Name = Decl->Text;
+      Info.TypeName = Type;
+      if (Type == "STRING" && TypeName)
+        for (const std::unique_ptr<ASTNode> &TypeChild : TypeName->Children)
+          if (TypeChild->Kind == "StringLength")
+            Info.StringLength = constantBoundExtent(*TypeChild);
+      Params.push_back(std::move(Info));
+    }
+  }
+  return true;
 }
 
 static bool writeFile(StringRef Path, StringRef Contents) {
@@ -726,12 +799,14 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
     return 1;
   }
   std::string EntryName = getProcedureSymbolName(*EntryProcedure);
-  if (entryProcedureHasParams(*EntryProcedure)) {
+  std::vector<EntryParamInfo> EntryParams;
+  std::string BadParamName;
+  if (!collectEntryParams(*EntryProcedure, EntryParams, BadParamName)) {
     WithColor::error(errs(), "basic09c")
-        << "entry procedure '" << EntryName
-        << "' declares PARAM but the executable entry point is always "
-           "called with no arguments; move the entry procedure (with no "
-           "PARAM) to be the first PROCEDURE in the source file\n";
+        << "entry procedure '" << EntryName << "' PARAM '" << BadParamName
+        << "' is an array or record and cannot be supplied from the "
+           "command line; only scalar BYTE/INTEGER/BOOLEAN/REAL/STRING "
+           "params are allowed on the entry procedure\n";
     return 1;
   }
 
@@ -785,10 +860,62 @@ static int compileToExecutable(StringRef Source, StringRef ModuleName) {
 
   std::string Wrapper;
   raw_string_ostream WrapperOS(Wrapper);
-  WrapperOS << "int " << EntryName << "(void);\n"
-            << "int main(void) {\n"
-            << "  return " << EntryName << "();\n"
-            << "}\n";
+  if (EntryParams.empty()) {
+    WrapperOS << "int " << EntryName << "(void);\n"
+              << "int main(void) {\n"
+              << "  return " << EntryName << "();\n"
+              << "}\n";
+  } else {
+    WrapperOS << "#include <stdio.h>\n"
+              << "#include <stdlib.h>\n"
+              << "#include <string.h>\n\n";
+    WrapperOS << "int " << EntryName << "(";
+    for (size_t I = 0; I < EntryParams.size(); ++I) {
+      if (I)
+        WrapperOS << ", ";
+      WrapperOS << entryParamCType(EntryParams[I]) << " *";
+    }
+    WrapperOS << ");\n\n";
+
+    WrapperOS << "int main(int argc, char **argv) {\n";
+    for (size_t I = 0; I < EntryParams.size(); ++I) {
+      const EntryParamInfo &Param = EntryParams[I];
+      if (Param.TypeName == "STRING")
+        WrapperOS << "  char p" << I << "[" << (Param.StringLength + 1)
+                  << "];\n";
+      else
+        WrapperOS << "  " << entryParamCType(Param) << " p" << I << " = 0;\n";
+    }
+    WrapperOS << "  if (argc - 1 < " << EntryParams.size() << ") {\n"
+              << "    fprintf(stderr, \"usage: %s";
+    for (const EntryParamInfo &Param : EntryParams)
+      WrapperOS << " <" << Param.Name << ">";
+    WrapperOS << "\\n\", argv[0]);\n"
+              << "    return 1;\n"
+              << "  }\n";
+    for (size_t I = 0; I < EntryParams.size(); ++I) {
+      const EntryParamInfo &Param = EntryParams[I];
+      if (Param.TypeName == "STRING") {
+        WrapperOS << "  strncpy(p" << I << ", argv[" << (I + 1)
+                  << "], sizeof(p" << I << ") - 1);\n"
+                  << "  p" << I << "[sizeof(p" << I << ") - 1] = 0;\n";
+      } else if (Param.TypeName == "REAL") {
+        WrapperOS << "  p" << I << " = strtod(argv[" << (I + 1)
+                  << "], NULL);\n";
+      } else {
+        WrapperOS << "  p" << I << " = (" << entryParamCType(Param)
+                  << ")strtol(argv[" << (I + 1) << "], NULL, 10);\n";
+      }
+    }
+    WrapperOS << "  return " << EntryName << "(";
+    for (size_t I = 0; I < EntryParams.size(); ++I) {
+      if (I)
+        WrapperOS << ", ";
+      WrapperOS << (EntryParams[I].TypeName == "STRING" ? "" : "&") << "p"
+                << I;
+    }
+    WrapperOS << ");\n}\n";
+  }
   WrapperOS.flush();
 
   if (!writeFile(MainPath, Wrapper)) {

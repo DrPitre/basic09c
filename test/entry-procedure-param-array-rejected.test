@@ -1,0 +1,11 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: not basic09c --compile --cc %cc -o %t/entryarray %t/entryarray.b09 2>&1 | FileCheck %s
+
+# CHECK: entry procedure 'entryarray' PARAM 'A' is an array or record and cannot be supplied from the command line
+
+#--- entryarray.b09
+PROCEDURE entryarray
+PARAM a(5):INTEGER
+END
