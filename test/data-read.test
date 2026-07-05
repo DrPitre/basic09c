@@ -16,6 +16,21 @@
 # CHECK-NEXT: SQRT OK
 
 #--- dataread.b09
+PROCEDURE restoretest
+DIM f$,s$:STRING[10]
+
+REM RESTORE rewinds the cursor, including over string values
+READ f$
+READ s$
+PRINT f$
+PRINT s$
+RESTORE
+READ f$
+PRINT f$
+
+DATA "FIRST","SECOND"
+END
+
 PROCEDURE dataread
 DIM a:INTEGER
 DIM b:REAL
@@ -46,19 +61,4 @@ ENDIF
 
 DATA 5, 3.5, "HELLO"
 DATA 10,20,30
-END
-
-PROCEDURE restoretest
-DIM f$,s$:STRING[10]
-
-REM RESTORE rewinds the cursor, including over string values
-READ f$
-READ s$
-PRINT f$
-PRINT s$
-RESTORE
-READ f$
-PRINT f$
-
-DATA "FIRST","SECOND"
 END

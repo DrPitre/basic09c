@@ -146,11 +146,15 @@ static std::string getProcedureSymbolName(const ASTNode &Procedure) {
   return Text.substr(0, End).lower();
 }
 
+// Traditional BASIC09 keeps whichever procedure was entered/loaded last as
+// the "current" one, so a module file containing multiple PROCEDUREs runs
+// the last one, not the first.
 static const ASTNode *getEntryProcedure(const ASTNode &Root) {
+  const ASTNode *Entry = nullptr;
   for (const std::unique_ptr<ASTNode> &Child : Root.Children)
     if (Child->Kind == "Procedure")
-      return Child.get();
-  return nullptr;
+      Entry = Child.get();
+  return Entry;
 }
 
 // The entry procedure's PARAM list becomes the executable's command-line

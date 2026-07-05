@@ -10,6 +10,26 @@
 # CHECK-NEXT: OK
 
 #--- paramarray.b09
+PROCEDURE readback
+PARAM col(8):BOOLEAN
+PARAM h:INTEGER
+PRINT col(h)
+END
+
+PROCEDURE writeindex
+PARAM d(5):INTEGER
+PARAM h:INTEGER
+d(h):=99
+END
+
+PROCEDURE compareindex
+PARAM e(5):INTEGER
+PARAM h:INTEGER
+IF e(h)=5 THEN
+PRINT "OK"
+ENDIF
+END
+
 PROCEDURE paramarray
 DIM col(8):BOOLEAN
 DIM d(5):INTEGER
@@ -31,24 +51,4 @@ e(0):=5
 h:=0
 RUN compareindex(e,h)
 
-END
-
-PROCEDURE readback
-PARAM col(8):BOOLEAN
-PARAM h:INTEGER
-PRINT col(h)
-END
-
-PROCEDURE writeindex
-PARAM d(5):INTEGER
-PARAM h:INTEGER
-d(h):=99
-END
-
-PROCEDURE compareindex
-PARAM e(5):INTEGER
-PARAM h:INTEGER
-IF e(h)=5 THEN
-PRINT "OK"
-ENDIF
 END

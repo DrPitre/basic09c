@@ -1,30 +1,3 @@
-PROCEDURE stresshonker
-DIM passed,failed,checksum:INTEGER
-
-passed:=0
-failed:=0
-checksum:=0
-
-PRINT "BASIC09 compiler stress honker"
-PRINT "------------------------------"
-
-RUN testNumbers(passed,failed,checksum)
-RUN testStrings(passed,failed,checksum)
-RUN testDataRead(passed,failed,checksum)
-RUN testControlFlow(passed,failed,checksum)
-RUN testRecords(passed,failed,checksum)
-RUN testArrays(passed,failed,checksum)
-RUN testProcedures(passed,failed,checksum)
-RUN testGosubRouter(passed,failed,checksum)
-RUN testMathLibrary(passed,failed,checksum)
-RUN testPrintFormatting(passed,failed,checksum)
-
-RUN assertInt("final checksum",checksum,1216,passed,failed)
-
-PRINT "------------------------------"
-PRINT "Passed: ";passed
-PRINT "Failed: ";failed
-END
 
 PROCEDURE pass
 PARAM name$:STRING
@@ -377,4 +350,32 @@ PRINT USING "'using value ',R6.1", 12.5
 RUN pass("print surface emitted",passed)
 checksum:=checksum+149
 
+END
+
+PROCEDURE stresshonker
+DIM passed,failed,checksum:INTEGER
+
+passed:=0
+failed:=0
+checksum:=0
+
+PRINT "BASIC09 compiler stress honker"
+PRINT "------------------------------"
+
+RUN testNumbers(passed,failed,checksum)
+RUN testStrings(passed,failed,checksum)
+RUN testDataRead(passed,failed,checksum)
+RUN testControlFlow(passed,failed,checksum)
+RUN testRecords(passed,failed,checksum)
+RUN testArrays(passed,failed,checksum)
+RUN testProcedures(passed,failed,checksum)
+RUN testGosubRouter(passed,failed,checksum)
+RUN testMathLibrary(passed,failed,checksum)
+RUN testPrintFormatting(passed,failed,checksum)
+
+RUN assertInt("final checksum",checksum,1216,passed,failed)
+
+PRINT "------------------------------"
+PRINT "Passed: ";passed
+PRINT "Failed: ";failed
 END

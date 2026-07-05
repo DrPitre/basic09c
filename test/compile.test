@@ -84,13 +84,13 @@ PRINT "after-shell"
 END
 
 #--- end-value.b09
-PROCEDURE endvaluedemo
-RUN endtext
-RUN endnumber
-END
-
 PROCEDURE endtext
 END "hi"
 
 PROCEDURE endnumber
 END 33
+
+PROCEDURE endvaluedemo
+RUN endtext
+RUN endnumber
+END
