@@ -664,9 +664,8 @@ private:
     DesignatorState State;
     if (!resolveOrCreateDesignator(Root, State))
       return false;
-    if (State.IsArray)
-      return error(*LHS,
-                   "array assignment is not supported by LLVM IR lowering yet");
+    if (State.IsArray || State.Kind == BasicKind::Record)
+      return emitAggregateAssign(*LHS, State, *RHS);
     if (State.Kind == BasicKind::String) {
       const ASTNode *String = firstChildKind(*RHS, "String");
       if (String) {
@@ -689,6 +688,35 @@ private:
     Builder.CreateStore(V, State.Ptr);
     return true;
   }
+
+  // Whole-array or whole-record assignment (e.g. `b := a`, `w.samples :=
+  // v.samples`). The right-hand side must itself be a bare designator of the
+  // exact same aggregate type; it is copied with a single memcpy rather than
+  // field-by-field.
+  bool emitAggregateAssign(const ASTNode &LHS, const DesignatorState &Dest,
+                           const ASTNode &RHS) {
+    const char *Noun = Dest.IsArray ? "array" : "record";
+    if (RHS.Children.empty())
+      return error(RHS, "assignment is missing an operand");
+    const ASTNode &Src = *RHS.Children.front();
+    if (Src.Kind != "Var" && Src.Kind != "Call")
+      return error(Src, std::string(Noun) +
+                            " assignment requires a variable on the "
+                            "right-hand side: " +
+                            LHS.Text);
+    DesignatorState SrcState;
+    if (!resolveDesignator(Src, SrcState))
+      return false;
+    if (SrcState.IsArray != Dest.IsArray || SrcState.Kind != Dest.Kind ||
+        SrcState.StorageTy != Dest.StorageTy)
+      return error(Src, "type mismatch in " + std::string(Noun) +
+                            " assignment: " + LHS.Text + " := " + Src.Text);
+    uint64_t Size = M->getDataLayout().getTypeAllocSize(Dest.StorageTy);
+    Align Alignment = M->getDataLayout().getABITypeAlign(Dest.StorageTy);
+    Builder.CreateMemCpy(Dest.Ptr, Alignment, SrcState.Ptr, Alignment, Size);
+    return true;
+  }
+
 
   bool emitShell(const ASTNode &Stmt) {
     const ASTNode *Argument = firstChildKind(Stmt, "Argument");
