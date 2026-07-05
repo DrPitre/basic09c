@@ -946,6 +946,12 @@ StringRef Parser::classifyLine(const Line &L) {
   StringRef First = firstTokenText(L);
   if (First == "?")
     return lineContains(L, "USING") ? "PrintUsing" : "Print";
+  // A variable literally named "data" (or any other keyword-shaped
+  // identifier) reads identically to its keyword once uppercased; an
+  // assignment target is unambiguous because DATA statements never place
+  // ":=" immediately after the keyword.
+  if (L.size() >= 2 && L[1].Text == ":=")
+    return "Assign";
   StringRef Kind =
       StringSwitch<StringRef>(First)
           .Case("DIM", "Dim")

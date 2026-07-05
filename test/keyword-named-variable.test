@@ -1,0 +1,23 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/kwvar %t/kwvar.b09
+# RUN: %t/kwvar | FileCheck %s
+
+# CHECK: 5
+# CHECK-NEXT: 1
+
+#--- kwvar.b09
+PROCEDURE kwvar
+DIM data,x:INTEGER
+
+REM a variable literally named "data" must not be misparsed as the
+REM DATA statement keyword once uppercased by the lexer
+data := 5
+PRINT data
+
+READ x
+PRINT x
+
+DATA 1,2,3
+END
