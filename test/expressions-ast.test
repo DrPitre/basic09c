@@ -3,6 +3,7 @@
 
 # CHECK: Assign "A := 1 + 2 * 3 ^ 4" @3
 # CHECK-NEXT: LHS "A" @3
+# CHECK-NEXT: Var "A" @3
 # CHECK-NEXT: RHS "1 + 2 * 3 ^ 4" @3
 # CHECK-NEXT: Binary "+" @3
 # CHECK-NEXT: Integer "1" @3

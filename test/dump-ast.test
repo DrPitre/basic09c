@@ -20,6 +20,7 @@
 # CHECK-NEXT:                 Integer "2" @6
 # CHECK:           Assign "TOTAL := TOTAL + I" @11
 # CHECK-NEXT:             LHS "TOTAL" @11
+# CHECK-NEXT:               Var "TOTAL" @11
 # CHECK-NEXT:             RHS "TOTAL + I" @11
 # CHECK-NEXT:               Binary "+" @11
 # CHECK-NEXT:                 Var "TOTAL" @11

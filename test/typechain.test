@@ -1,0 +1,98 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/typechain %t/typechain.b09
+# RUN: cd %t && %t/typechain | FileCheck %s
+# RUN: cmp %t/team.dat %t/team2.dat
+
+# CHECK: ALICE SPRINGFIELD 2000
+# CHECK-NEXT: MEMBER100 TOWNVILLE4000
+# CHECK-NEXT: MEMBER101 TOWNVILLE4001
+# CHECK-NEXT: MEMBER102 TOWNVILLE4002
+# CHECK-NEXT: PASS deep nested chain roundtrip
+
+#--- typechain.b09
+PROCEDURE typechain
+TYPE address=street:STRING[20]; city:STRING[15]; zip:INTEGER
+TYPE contact=home:address; work:address; phone:STRING[12]
+TYPE employee=id:INTEGER; name:STRING[20]; info:contact; rating:REAL
+TYPE team=lead:employee; members(2):employee; count:INTEGER
+
+DIM t,t2:team
+DIM i:INTEGER
+DIM path,ok:INTEGER
+
+t.lead.id:=1
+t.lead.name:="ALICE"
+t.lead.rating:=4.5
+t.lead.info.phone:="555-1000"
+t.lead.info.home.street:="1 MAIN ST"
+t.lead.info.home.city:="SPRINGFIELD"
+t.lead.info.home.zip:=1000
+t.lead.info.work.street:="9 OFFICE PARK"
+t.lead.info.work.city:="CAPITAL CITY"
+t.lead.info.work.zip:=2000
+
+FOR i:=0 TO 2
+t.members(i).id:=100+i
+t.members(i).name:="MEMBER"
+t.members(i).rating:=3.0+i
+t.members(i).info.phone:="555-200"+STR$(i)
+t.members(i).info.home.street:="ROW "+STR$(i)
+t.members(i).info.home.city:="TOWNVILLE"
+t.members(i).info.home.zip:=3000+i
+t.members(i).info.work.street:="SUITE "+STR$(i)
+t.members(i).info.work.city:="METRO"
+t.members(i).info.work.zip:=4000+i
+NEXT i
+t.count:=3
+
+PRINT t.lead.name;" ";t.lead.info.home.city;" ";t.lead.info.work.zip
+FOR i:=0 TO 2
+PRINT t.members(i).name;t.members(i).id;" ";t.members(i).info.home.city;t.members(i).info.work.zip
+NEXT i
+
+CREATE #path,"team.dat":UPDATE
+PUT #path,t
+CLOSE #path
+
+OPEN #path,"team.dat":UPDATE
+GET #path,t2
+CLOSE #path
+
+CREATE #path,"team2.dat":UPDATE
+PUT #path,t2
+CLOSE #path
+
+ok:=1
+IF t2.lead.id<>t.lead.id THEN ok:=0 ENDIF
+IF t2.lead.name<>t.lead.name THEN ok:=0 ENDIF
+IF ABS(t2.lead.rating-t.lead.rating)>.0001 THEN ok:=0 ENDIF
+IF t2.lead.info.phone<>t.lead.info.phone THEN ok:=0 ENDIF
+IF t2.lead.info.home.street<>t.lead.info.home.street THEN ok:=0 ENDIF
+IF t2.lead.info.home.city<>t.lead.info.home.city THEN ok:=0 ENDIF
+IF t2.lead.info.home.zip<>t.lead.info.home.zip THEN ok:=0 ENDIF
+IF t2.lead.info.work.street<>t.lead.info.work.street THEN ok:=0 ENDIF
+IF t2.lead.info.work.city<>t.lead.info.work.city THEN ok:=0 ENDIF
+IF t2.lead.info.work.zip<>t.lead.info.work.zip THEN ok:=0 ENDIF
+IF t2.count<>t.count THEN ok:=0 ENDIF
+FOR i:=0 TO 2
+IF t2.members(i).id<>t.members(i).id THEN ok:=0 ENDIF
+IF t2.members(i).name<>t.members(i).name THEN ok:=0 ENDIF
+IF ABS(t2.members(i).rating-t.members(i).rating)>.0001 THEN ok:=0 ENDIF
+IF t2.members(i).info.phone<>t.members(i).info.phone THEN ok:=0 ENDIF
+IF t2.members(i).info.home.street<>t.members(i).info.home.street THEN ok:=0 ENDIF
+IF t2.members(i).info.home.city<>t.members(i).info.home.city THEN ok:=0 ENDIF
+IF t2.members(i).info.home.zip<>t.members(i).info.home.zip THEN ok:=0 ENDIF
+IF t2.members(i).info.work.street<>t.members(i).info.work.street THEN ok:=0 ENDIF
+IF t2.members(i).info.work.city<>t.members(i).info.work.city THEN ok:=0 ENDIF
+IF t2.members(i).info.work.zip<>t.members(i).info.work.zip THEN ok:=0 ENDIF
+NEXT i
+
+IF ok=1 THEN
+PRINT "PASS deep nested chain roundtrip"
+ELSE
+PRINT "FAIL deep nested chain roundtrip"
+ENDIF
+
+END

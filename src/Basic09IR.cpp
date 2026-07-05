@@ -41,6 +41,7 @@ struct LocalInfo {
   BasicKind Kind = BasicKind::Integer;
   bool IsArray = false;
   uint64_t StringLength = 0;
+  std::string RecordTypeName;
 };
 
 struct ParamInfo {
@@ -49,11 +50,37 @@ struct ParamInfo {
   Type *ElementTy = nullptr;
   BasicKind Kind = BasicKind::Integer;
   uint64_t StringLength = 0;
+  std::string RecordTypeName;
 };
 
 struct ProcedureInfo {
   Function *Fn = nullptr;
   std::vector<ParamInfo> Params;
+};
+
+struct RecordFieldInfo {
+  std::string Name;
+  BasicKind Kind = BasicKind::Integer;
+  Type *StorageTy = nullptr;
+  Type *ElementTy = nullptr;
+  uint64_t StringLength = 0;
+  bool IsArray = false;
+  std::string RecordTypeName;
+};
+
+struct RecordTypeInfo {
+  std::vector<RecordFieldInfo> Fields;
+  StructType *IRTy = nullptr;
+  StringMap<unsigned> FieldIndex;
+};
+
+struct DesignatorState {
+  Value *Ptr = nullptr;
+  Type *ElemTy = nullptr;
+  Type *StorageTy = nullptr;
+  BasicKind Kind = BasicKind::Integer;
+  bool IsArray = false;
+  std::string RecordTypeName;
 };
 
 class IREmitter {
@@ -68,6 +95,18 @@ public:
     if (Root.Kind != "Program")
       return error(Root, "expected Program root");
 
+    for (const std::unique_ptr<ASTNode> &Child : Root.Children) {
+      if (Child->Kind != "Type")
+        continue;
+      const ASTNode *TypeName = firstChildKind(*Child, "TypeName");
+      if (!TypeName)
+        continue;
+      RecordTypes = GlobalRecordTypes;
+      if (!buildRecordType(*Child, TypeName->Text))
+        return false;
+      GlobalRecordTypes = RecordTypes;
+    }
+
     std::vector<const ASTNode *> ProceduresToEmit;
     std::vector<const ASTNode *> TopLevelStatements;
     for (const std::unique_ptr<ASTNode> &Child : Root.Children) {
@@ -77,6 +116,8 @@ public:
         ProceduresToEmit.push_back(Child.get());
         continue;
       }
+      if (Child->Kind == "Type")
+        continue;
       TopLevelStatements.push_back(Child.get());
     }
     for (const ASTNode *Procedure : ProceduresToEmit)
@@ -100,6 +141,8 @@ private:
   Function *CurrentFunction = nullptr;
   StringMap<ProcedureInfo> Procedures;
   StringMap<LocalInfo> Locals;
+  StringMap<RecordTypeInfo> RecordTypes;
+  StringMap<RecordTypeInfo> GlobalRecordTypes;
   StringMap<BasicBlock *> LabelBlocks;
   std::vector<BasicBlock *> LoopExits;
   std::vector<double> DataValues;
@@ -140,6 +183,8 @@ private:
     std::string Name = procedureName(Procedure);
     if (Name.empty())
       return error(Procedure, "procedure has no name");
+    if (!collectRecordTypes(Procedure))
+      return false;
     ProcedureInfo Info;
     if (!collectProcedureParams(Procedure, Info.Params))
       return false;
@@ -156,6 +201,8 @@ private:
     std::string Name = procedureName(Procedure);
     if (Name.empty())
       return error(Procedure, "procedure has no name");
+    if (!collectRecordTypes(Procedure))
+      return false;
 
     auto ProcIt = Procedures.find(Name);
     if (ProcIt == Procedures.end())
@@ -175,8 +222,10 @@ private:
     for (Argument &Arg : CurrentFunction->args()) {
       const ParamInfo &Param = Proc.Params[Index++];
       Arg.setName(Param.Name);
-      Locals[Param.Name] = {&Arg, Param.StorageTy, Param.ElementTy, Param.Kind,
-                            false, Param.StringLength};
+      Locals[Param.Name] = {&Arg,          Param.StorageTy,
+                            Param.ElementTy, Param.Kind,
+                            false,         Param.StringLength,
+                            Param.RecordTypeName};
     }
 
     const ASTNode *Body = firstChildKind(Procedure, "Block");
@@ -216,7 +265,7 @@ private:
         ParamInfo Param;
         Param.Name = Decl->Text;
         if (!getBasicType(*Decl, BasicType, Param.Kind, Param.ElementTy,
-                          Param.StringLength))
+                          Param.StringLength, Param.RecordTypeName))
           return false;
         Param.StorageTy = Param.ElementTy;
         Params.push_back(Param);
@@ -353,7 +402,9 @@ private:
       BasicKind Kind;
       Type *ElementTy = nullptr;
       uint64_t StringLength = 0;
-      if (!getBasicType(*Decl, BasicType, Kind, ElementTy, StringLength))
+      std::string RecordTypeName;
+      if (!getBasicType(*Decl, BasicType, Kind, ElementTy, StringLength,
+                        RecordTypeName))
         return false;
 
       Type *StorageTy = ElementTy;
@@ -384,8 +435,9 @@ private:
         Builder.CreateStore(Constant::getNullValue(StorageTy), StackSlot);
         Slot = StackSlot;
       }
-      Locals[Decl->Text] = {Slot, StorageTy, ElementTy, Kind, !Bounds.empty(),
-                            StringLength};
+      Locals[Decl->Text] = {Slot,   StorageTy,      ElementTy,
+                            Kind,   !Bounds.empty(), StringLength,
+                            RecordTypeName};
     }
     return true;
   }
@@ -573,10 +625,9 @@ private:
         continue;
       if (DataCursor >= DataValues.size())
         return error(*Target, "READ ran past available DATA values");
-      if (!emitStoreDesignator(Target->Text,
+      if (!emitStoreDesignator(*Target,
                                ConstantFP::get(doubleTy(),
-                                               DataValues[DataCursor++]),
-                               *Target))
+                                               DataValues[DataCursor++])))
         return false;
     }
     return true;
@@ -596,7 +647,7 @@ private:
     for (const std::unique_ptr<ASTNode> &Target : Stmt.Children) {
       if (Target->Kind != "Target")
         continue;
-      if (!emitScanDesignator(Target->Text, *Target))
+      if (!emitScanDesignator(*Target))
         return false;
     }
     return true;
@@ -607,20 +658,19 @@ private:
     const ASTNode *RHS = firstChildKind(Stmt, "RHS");
     if (!LHS || !RHS)
       return error(Stmt, "assignment is missing an operand");
-    if (StringRef(LHS->Text).contains("("))
-      return emitArrayAssign(*LHS, *RHS);
-    if (StringRef(LHS->Text).contains("."))
-      return emitRecordAssign(*LHS, *RHS);
-    LocalInfo *Local = getOrCreateScalarLocal(LHS->Text);
-    if (!Local)
+    if (LHS->Children.empty())
+      return error(*LHS, "assignment target is missing: " + LHS->Text);
+    const ASTNode &Root = *LHS->Children.front();
+    DesignatorState State;
+    if (!resolveOrCreateDesignator(Root, State))
       return false;
-    if (Local->IsArray)
+    if (State.IsArray)
       return error(*LHS,
                    "array assignment is not supported by LLVM IR lowering yet");
-    if (Local->Kind == BasicKind::String) {
+    if (State.Kind == BasicKind::String) {
       const ASTNode *String = firstChildKind(*RHS, "String");
       if (String) {
-        emitStringStore(Local->ElementTy, Local->Slot, unquote(String->Text));
+        emitStringStore(State.ElemTy, State.Ptr, unquote(String->Text));
         return true;
       }
       Value *Text = emitExprChild(*RHS);
@@ -629,15 +679,14 @@ private:
       if (!Text->getType()->isPointerTy())
         return error(*RHS, "STRING assignment requires a string expression");
       Builder.CreateCall(getStrcpy(),
-                         {stringDataPtr(Local->ElementTy, Local->Slot), Text});
+                         {stringDataPtr(State.ElemTy, State.Ptr), Text});
       return true;
     }
     Value *V = emitExprChild(*RHS);
     if (!V)
       return false;
-    Type *DestTy = Local->ElementTy;
-    V = coerceScalar(V, DestTy);
-    Builder.CreateStore(V, Local->Slot);
+    V = coerceScalar(V, State.ElemTy);
+    Builder.CreateStore(V, State.Ptr);
     return true;
   }
 
@@ -683,7 +732,7 @@ private:
         fileOpenMode(ForCreate, Mode ? StringRef(Mode->Text) : "");
     Value *Handle = Builder.CreateCall(
         getFileOpenFn(), {NameVal, Builder.CreateGlobalString(ModeStr)});
-    return emitStoreDesignator(PathNode->Text, Handle, *PathNode);
+    return emitStoreDesignator(*PathNode, Handle);
   }
 
   bool emitOpen(const ASTNode &Stmt) { return emitOpenOrCreate(Stmt, false); }
@@ -727,33 +776,18 @@ private:
     return true;
   }
 
-  Value *resolveBufferPtr(StringRef Designator, const ASTNode &At,
-                          uint64_t &Size) {
-    if (Designator.contains("(")) {
-      StringRef Name = arrayDesignatorName(Designator);
-      auto It = Locals.find(Name);
-      if (It == Locals.end() || !It->second.IsArray) {
-        error(At, ("unknown array: " + Name).str());
-        return nullptr;
-      }
-      Value *Ptr = emitArrayElementPtr(Designator, At);
-      if (!Ptr)
-        return nullptr;
-      Type *ElemTy = recordFieldName(Designator).empty() ? It->second.ElementTy
-                                                         : doubleTy();
-      Size = M->getDataLayout().getTypeAllocSize(ElemTy);
-      return Ptr;
-    }
-    auto It = Locals.find(Designator);
-    if (It != Locals.end() && It->second.IsArray) {
-      Size = M->getDataLayout().getTypeAllocSize(It->second.StorageTy);
-      return It->second.Slot;
-    }
-    LocalInfo *Local = getOrCreateScalarLocal(Designator);
-    if (!Local)
+  Value *resolveBufferPtr(const ASTNode &DesignatorNode, uint64_t &Size) {
+    if (DesignatorNode.Children.empty()) {
+      error(DesignatorNode, "designator is missing: " + DesignatorNode.Text);
       return nullptr;
-    Size = M->getDataLayout().getTypeAllocSize(Local->ElementTy);
-    return Local->Slot;
+    }
+    const ASTNode &Root = *DesignatorNode.Children.front();
+    DesignatorState State;
+    if (!resolveOrCreateDesignator(Root, State))
+      return nullptr;
+    Type *SizeTy = State.IsArray ? State.StorageTy : State.ElemTy;
+    Size = M->getDataLayout().getTypeAllocSize(SizeTy);
+    return State.Ptr;
   }
 
   bool emitGetFile(const ASTNode &Stmt) {
@@ -765,7 +799,7 @@ private:
     if (!Handle)
       return false;
     uint64_t Size = 0;
-    Value *Ptr = resolveBufferPtr(Target->Text, *Target, Size);
+    Value *Ptr = resolveBufferPtr(*Target, Size);
     if (!Ptr)
       return false;
     Builder.CreateCall(getFileGetFn(),
@@ -782,7 +816,7 @@ private:
     if (!Handle)
       return false;
     uint64_t Size = 0;
-    Value *Ptr = resolveBufferPtr(ValueNode->Text, *ValueNode, Size);
+    Value *Ptr = resolveBufferPtr(*ValueNode, Size);
     if (!Ptr)
       return false;
     Builder.CreateCall(getFilePutFn(),
@@ -818,48 +852,31 @@ private:
     return true;
   }
 
-  bool emitReadFileDesignator(Value *Handle, StringRef Designator,
-                              const ASTNode &At) {
-    LocalInfo *Local = nullptr;
-    Value *Ptr = nullptr;
-    Type *ElemTy = nullptr;
-    BasicKind Kind = BasicKind::Integer;
-
-    if (Designator.contains("(")) {
-      StringRef Name = arrayDesignatorName(Designator);
-      auto It = Locals.find(Name);
-      if (It == Locals.end() || !It->second.IsArray)
-        return error(At, ("unknown array: " + Name).str());
-      Local = &It->second;
-      Ptr = emitArrayElementPtr(Designator, At);
-      ElemTy = recordFieldName(Designator).empty() ? Local->ElementTy
-                                                   : doubleTy();
-      Kind = Local->Kind;
-    } else {
-      Local = getOrCreateScalarLocal(Designator);
-      if (!Local)
-        return false;
-      Ptr = Local->Slot;
-      ElemTy = Local->ElementTy;
-      Kind = Local->Kind;
-    }
-    if (!Ptr)
+  bool emitReadFileDesignator(Value *Handle, const ASTNode &DesignatorNode) {
+    if (DesignatorNode.Children.empty())
+      return error(DesignatorNode,
+                   "designator is missing: " + DesignatorNode.Text);
+    const ASTNode &Root = *DesignatorNode.Children.front();
+    DesignatorState State;
+    if (!resolveOrCreateDesignator(Root, State))
       return false;
+    if (State.IsArray)
+      return error(DesignatorNode, "READ target requires an index");
 
-    if (Kind == BasicKind::String) {
-      Value *Data = stringDataPtr(ElemTy, Ptr);
-      uint64_t Capacity = cast<ArrayType>(ElemTy)->getNumElements();
+    if (State.Kind == BasicKind::String) {
+      Value *Data = stringDataPtr(State.ElemTy, State.Ptr);
+      uint64_t Capacity = cast<ArrayType>(State.ElemTy)->getNumElements();
       Builder.CreateCall(getFileReadLineFn(),
                          {Handle, Data, ConstantInt::get(i32Ty(), Capacity)});
       return true;
     }
-    if (ElemTy->isDoubleTy()) {
+    if (State.ElemTy->isDoubleTy()) {
       Value *V = Builder.CreateCall(getFileReadRealFn(), {Handle});
-      Builder.CreateStore(V, Ptr);
+      Builder.CreateStore(V, State.Ptr);
       return true;
     }
     Value *V = Builder.CreateCall(getFileReadIntFn(), {Handle});
-    Builder.CreateStore(coerceScalar(V, ElemTy), Ptr);
+    Builder.CreateStore(coerceScalar(V, State.ElemTy), State.Ptr);
     return true;
   }
 
@@ -873,7 +890,7 @@ private:
     for (const std::unique_ptr<ASTNode> &Target : Stmt.Children) {
       if (Target->Kind != "Target")
         continue;
-      if (!emitReadFileDesignator(Handle, Target->Text, *Target))
+      if (!emitReadFileDesignator(Handle, *Target))
         return false;
     }
     return true;
@@ -1186,103 +1203,33 @@ private:
     return true;
   }
 
-  bool emitArrayAssign(const ASTNode &LHS, const ASTNode &RHS) {
-    StringRef Name = arrayDesignatorName(LHS.Text);
-    auto It = Locals.find(Name);
-    if (It == Locals.end() || !It->second.IsArray)
-      return error(LHS, "assignment target is not a local array: " + LHS.Text);
-    Value *Ptr = emitArrayElementPtr(LHS.Text, LHS);
-    if (!Ptr)
+  bool emitStoreDesignator(const ASTNode &DesignatorNode, Value *V) {
+    if (DesignatorNode.Children.empty())
+      return error(DesignatorNode,
+                   "designator is missing: " + DesignatorNode.Text);
+    const ASTNode &Root = *DesignatorNode.Children.front();
+    DesignatorState State;
+    if (!resolveOrCreateDesignator(Root, State))
       return false;
-    if (It->second.Kind == BasicKind::String) {
-      const ASTNode *String = firstChildKind(RHS, "String");
-      if (String) {
-        emitStringStore(It->second.ElementTy, Ptr, unquote(String->Text));
-        return true;
-      }
-      Value *Text = emitExprChild(RHS);
-      if (!Text)
-        return false;
-      if (!Text->getType()->isPointerTy())
-        return error(RHS, "STRING array assignment requires a string expression");
-      Builder.CreateCall(getStrcpy(), {stringDataPtr(It->second.ElementTy, Ptr),
-                                       Text});
-      return true;
-    }
-    Value *V = emitExprChild(RHS);
-    if (!V)
-      return false;
-    Type *ElemTy = recordFieldName(LHS.Text).empty() ? It->second.ElementTy
-                                                     : doubleTy();
-    V = coerceScalar(V, ElemTy);
-    Builder.CreateStore(V, Ptr);
+    if (State.IsArray)
+      return error(DesignatorNode, "assignment target requires an index");
+    Builder.CreateStore(coerceScalar(V, State.ElemTy), State.Ptr);
     return true;
   }
 
-  bool emitRecordAssign(const ASTNode &LHS, const ASTNode &RHS) {
-    StringRef Name;
-    StringRef Field;
-    std::tie(Name, Field) = StringRef(LHS.Text).split('.');
-    auto It = Locals.find(Name.trim());
-    if (It == Locals.end() || It->second.Kind != BasicKind::Record)
-      return error(LHS, "assignment target is not a record: " + LHS.Text);
-    Value *Ptr = Builder.CreateInBoundsGEP(
-        It->second.StorageTy, It->second.Slot,
-        {ConstantInt::get(i32Ty(), 0),
-         ConstantInt::get(i32Ty(), recordFieldIndex(Field.trim()))});
-    Value *V = emitExprChild(RHS);
-    if (!V)
+  bool emitScanDesignator(const ASTNode &DesignatorNode) {
+    if (DesignatorNode.Children.empty())
+      return error(DesignatorNode,
+                   "designator is missing: " + DesignatorNode.Text);
+    const ASTNode &Root = *DesignatorNode.Children.front();
+    DesignatorState State;
+    if (!resolveOrCreateDesignator(Root, State))
       return false;
-    Builder.CreateStore(coerceScalar(V, doubleTy()), Ptr);
-    return true;
-  }
-
-  bool emitStoreDesignator(StringRef Designator, Value *V, const ASTNode &At) {
-    if (Designator.contains("(")) {
-      StringRef Name = arrayDesignatorName(Designator);
-      auto It = Locals.find(Name);
-      if (It == Locals.end() || !It->second.IsArray)
-        return error(At, ("unknown array: " + Name).str());
-      Value *Ptr = emitArrayElementPtr(Designator, At);
-      if (!Ptr)
-        return false;
-      Type *ElemTy = recordFieldName(Designator).empty() ? It->second.ElementTy
-                                                         : doubleTy();
-      Builder.CreateStore(coerceScalar(V, ElemTy), Ptr);
-      return true;
-    }
-
-    LocalInfo *Local = getOrCreateScalarLocal(Designator);
-    if (!Local)
-      return false;
-    Builder.CreateStore(coerceScalar(V, Local->ElementTy), Local->Slot);
-    return true;
-  }
-
-  bool emitScanDesignator(StringRef Designator, const ASTNode &At) {
-    LocalInfo *Local = nullptr;
-    Value *Ptr = nullptr;
-    Type *ElemTy = nullptr;
-    BasicKind Kind = BasicKind::Integer;
-
-    if (Designator.contains("(")) {
-      StringRef Name = arrayDesignatorName(Designator);
-      auto It = Locals.find(Name);
-      if (It == Locals.end() || !It->second.IsArray)
-        return error(At, ("unknown array: " + Name).str());
-      Local = &It->second;
-      Ptr = emitArrayElementPtr(Designator, At);
-      ElemTy = recordFieldName(Designator).empty() ? Local->ElementTy
-                                                   : doubleTy();
-      Kind = Local->Kind;
-    } else {
-      Local = getOrCreateScalarLocal(Designator);
-      if (!Local)
-        return false;
-      Ptr = Local->Slot;
-      ElemTy = Local->ElementTy;
-      Kind = Local->Kind;
-    }
+    if (State.IsArray)
+      return error(DesignatorNode, "INPUT target requires an index");
+    Value *Ptr = State.Ptr;
+    Type *ElemTy = State.ElemTy;
+    BasicKind Kind = State.Kind;
 
     if (!Ptr)
       return false;
@@ -1853,6 +1800,19 @@ private:
         return ConstantFP::get(doubleTy(), 3.14159265358979323846);
       if (Expr.Text == "DATE$")
         return emitDate(Expr);
+      if (firstChildKind(Expr, "Field")) {
+        LocalInfo *Local = getOrCreateScalarLocal(Expr.Text);
+        if (!Local)
+          return nullptr;
+        if (Local->Kind != BasicKind::Record) {
+          error(Expr, "value is not a record: " + Expr.Text);
+          return nullptr;
+        }
+        DesignatorState State;
+        if (!resolveDesignator(Expr, State))
+          return nullptr;
+        return loadDesignatorValue(State, Expr);
+      }
       LocalInfo *Local = getOrCreateScalarLocal(Expr.Text);
       if (!Local)
         return nullptr;
@@ -1861,16 +1821,8 @@ private:
         return nullptr;
       }
       if (Local->Kind == BasicKind::Record) {
-        const ASTNode *Field = firstChildKind(Expr, "Field");
-        if (!Field) {
-          error(Expr, "record value requires a field: " + Expr.Text);
-          return nullptr;
-        }
-        Value *Ptr = Builder.CreateInBoundsGEP(
-            Local->StorageTy, Local->Slot,
-            {ConstantInt::get(i32Ty(), 0),
-             ConstantInt::get(i32Ty(), recordFieldIndex(Field->Text))});
-        return Builder.CreateLoad(doubleTy(), Ptr, Expr.Text);
+        error(Expr, "record value requires a field: " + Expr.Text);
+        return nullptr;
       }
       if (Local->Kind == BasicKind::String)
         return stringDataPtr(Local->ElementTy, Local->Slot);
@@ -2002,14 +1954,10 @@ private:
   Value *emitCall(const ASTNode &Expr) {
     auto Local = Locals.find(Expr.Text);
     if (Local != Locals.end() && Local->second.IsArray) {
-      Value *Ptr = emitArrayElementPtr(Expr);
-      if (!Ptr)
+      DesignatorState State;
+      if (!resolveDesignator(Expr, State))
         return nullptr;
-      if (Local->second.Kind == BasicKind::String)
-        return stringDataPtr(Local->second.ElementTy, Ptr);
-      if (Local->second.Kind == BasicKind::Record)
-        return Builder.CreateLoad(doubleTy(), Ptr, Expr.Text);
-      return Builder.CreateLoad(Local->second.ElementTy, Ptr, Expr.Text);
+      return loadDesignatorValue(State, Expr);
     }
 
     if (Expr.Text == "RND") {
@@ -2313,48 +2261,10 @@ private:
       error(Call, "unknown array: " + Call.Text);
       return nullptr;
     }
-    std::vector<Value *> Indices;
-    Indices.push_back(ConstantInt::get(i32Ty(), 0));
-    for (const std::unique_ptr<ASTNode> &IndexExpr : Call.Children) {
-      if (IndexExpr->Kind == "Field")
-        continue;
-      Value *Index = emitExpr(*IndexExpr);
-      if (!Index)
-        return nullptr;
-      Indices.push_back(coerceScalar(Index, i32Ty()));
-    }
-    if (It->second.Kind == BasicKind::Record) {
-      const ASTNode *Field = firstChildKind(Call, "Field");
-      if (!Field) {
-        error(Call, "record array reference requires a field: " + Call.Text);
-        return nullptr;
-      }
-      Indices.push_back(ConstantInt::get(i32Ty(), recordFieldIndex(Field->Text)));
-    }
-    return Builder.CreateInBoundsGEP(It->second.StorageTy, It->second.Slot,
-                                     Indices, Call.Text);
-  }
-
-  Value *emitArrayElementPtr(StringRef Designator, const ASTNode &At) {
-    StringRef Name = arrayDesignatorName(Designator);
-    auto It = Locals.find(Name);
-    if (It == Locals.end() || !It->second.IsArray) {
-      error(At, ("unknown array: " + Name).str());
+    DesignatorState State;
+    if (!resolveDesignator(Call, State))
       return nullptr;
-    }
-    std::vector<Value *> Indices;
-    Indices.push_back(ConstantInt::get(i32Ty(), 0));
-    for (std::string IndexText : arrayDesignatorIndices(Designator)) {
-      Value *Index = emitSimpleIndex(IndexText, At);
-      if (!Index)
-        return nullptr;
-      Indices.push_back(Index);
-    }
-    if (It->second.Kind == BasicKind::Record)
-      Indices.push_back(
-          ConstantInt::get(i32Ty(), recordFieldIndex(recordFieldName(Designator))));
-    return Builder.CreateInBoundsGEP(It->second.StorageTy, It->second.Slot,
-                                     Indices, Name);
+    return State.Ptr;
   }
 
   Value *stringDataPtr(Type *StringTy, Value *Ptr) {
@@ -2394,64 +2304,6 @@ private:
     Builder.CreateCall(getStrcpy(),
                        {stringDataPtr(StringTy, Dest),
                         Builder.CreateGlobalString(Text)});
-  }
-
-  Value *emitSimpleIndex(StringRef Text, const ASTNode &At) {
-    Text = Text.trim();
-    if (Text.empty()) {
-      error(At, "array index is empty");
-      return nullptr;
-    }
-    uint64_t IntValue = 0;
-    if (!Text.getAsInteger(10, IntValue))
-      return ConstantInt::get(i32Ty(), IntValue);
-    if (Text.consume_front("$") && !Text.getAsInteger(16, IntValue))
-      return ConstantInt::get(i32Ty(), IntValue);
-    LocalInfo *Local = getOrCreateScalarLocal(Text);
-    if (!Local)
-      return nullptr;
-    if (Local->IsArray) {
-      error(At, ("array index cannot be an array: " + Text).str());
-      return nullptr;
-    }
-    return coerceScalar(Builder.CreateLoad(Local->ElementTy, Local->Slot, Text),
-                        i32Ty());
-  }
-
-  static StringRef arrayDesignatorName(StringRef Text) {
-    return Text.take_until([](char C) { return C == '('; }).trim();
-  }
-
-  static std::vector<std::string> arrayDesignatorIndices(StringRef Text) {
-    std::vector<std::string> Result;
-    size_t Open = Text.find('(');
-    size_t Close = Text.rfind(')');
-    if (Open == StringRef::npos || Close == StringRef::npos || Close <= Open)
-      return Result;
-    StringRef Body = Text.slice(Open + 1, Close);
-    while (!Body.empty()) {
-      StringRef Part;
-      std::tie(Part, Body) = Body.split(',');
-      Result.push_back(Part.trim().str());
-    }
-    return Result;
-  }
-
-  static StringRef recordFieldName(StringRef Text) {
-    size_t Dot = Text.rfind('.');
-    if (Dot == StringRef::npos)
-      return StringRef();
-    return Text.drop_front(Dot + 1).trim();
-  }
-
-  static unsigned recordFieldIndex(StringRef Field) {
-    return StringSwitch<unsigned>(Field.upper())
-        .Case("SECTX", 0)
-        .Case("SECTY", 1)
-        .Case("ENERGY", 2)
-        .Case("LEFT", 0)
-        .Case("RIGHT", 1)
-        .Default(0);
   }
 
   Value *emitPow(Value *LHS, Value *RHS) {
@@ -2594,6 +2446,15 @@ private:
 
   bool getBasicType(const ASTNode &Decl, StringRef BasicType, BasicKind &Kind,
                     Type *&IRTy, uint64_t &StringLength) {
+    std::string RecordTypeName;
+    return getBasicType(Decl, BasicType, Kind, IRTy, StringLength,
+                        RecordTypeName);
+  }
+
+  bool getBasicType(const ASTNode &Decl, StringRef BasicType, BasicKind &Kind,
+                    Type *&IRTy, uint64_t &StringLength,
+                    std::string &RecordTypeName) {
+    RecordTypeName.clear();
     if (BasicType == "BYTE") {
       Kind = BasicKind::Byte;
       IRTy = Type::getInt8Ty(Context);
@@ -2620,9 +2481,191 @@ private:
       IRTy = ArrayType::get(Type::getInt8Ty(Context), StringLength + 1);
       return true;
     }
+    auto TypeIt = RecordTypes.find(BasicType);
+    if (TypeIt == RecordTypes.end())
+      return error(Decl, ("unknown type: " + BasicType).str());
     Kind = BasicKind::Record;
-    IRTy = ArrayType::get(doubleTy(), 3);
+    IRTy = TypeIt->second.IRTy;
+    RecordTypeName = BasicType.str();
     return true;
+  }
+
+  bool collectRecordTypes(const ASTNode &Procedure) {
+    RecordTypes = GlobalRecordTypes;
+    const ASTNode *Body = firstChildKind(Procedure, "Block");
+    if (!Body)
+      return true;
+    for (const std::unique_ptr<ASTNode> &Stmt : Body->Children) {
+      if (Stmt->Kind != "Type")
+        continue;
+      const ASTNode *TypeName = firstChildKind(*Stmt, "TypeName");
+      if (!TypeName)
+        continue;
+      if (!buildRecordType(*Stmt, TypeName->Text))
+        return false;
+    }
+    return true;
+  }
+
+  bool buildRecordType(const ASTNode &TypeNode, StringRef Name) {
+    RecordTypeInfo Info;
+    std::vector<Type *> FieldTys;
+    for (const std::unique_ptr<ASTNode> &Field : TypeNode.Children) {
+      if (Field->Kind != "Field")
+        continue;
+      const ASTNode *FieldTypeName = firstChildKind(*Field, "TypeName");
+      StringRef FieldBasicType =
+          FieldTypeName ? StringRef(FieldTypeName->Text) : "INTEGER";
+      RecordFieldInfo FieldInfo;
+      FieldInfo.Name = Field->Text;
+      if (!getBasicType(*Field, FieldBasicType, FieldInfo.Kind,
+                        FieldInfo.ElementTy, FieldInfo.StringLength,
+                        FieldInfo.RecordTypeName))
+        return false;
+
+      Type *FieldStorageTy = FieldInfo.ElementTy;
+      std::vector<uint64_t> Bounds;
+      for (const std::unique_ptr<ASTNode> &Child : Field->Children)
+        if (Child->Kind == "Bound")
+          Bounds.push_back(constantExtent(*Child));
+      for (uint64_t Bound : llvm::reverse(Bounds))
+        FieldStorageTy = ArrayType::get(FieldStorageTy, Bound + 1);
+      FieldInfo.StorageTy = FieldStorageTy;
+      FieldInfo.IsArray = !Bounds.empty();
+
+      Info.FieldIndex[FieldInfo.Name] = FieldTys.size();
+      FieldTys.push_back(FieldStorageTy);
+      Info.Fields.push_back(std::move(FieldInfo));
+    }
+    Info.IRTy = StructType::create(Context, FieldTys,
+                                   ("type." + Name).str());
+    RecordTypes[Name] = std::move(Info);
+    return true;
+  }
+
+  const RecordFieldInfo *findRecordField(StringRef TypeName, StringRef Field,
+                                         unsigned &Index) {
+    auto TypeIt = RecordTypes.find(TypeName);
+    if (TypeIt == RecordTypes.end())
+      return nullptr;
+    auto FieldIt = TypeIt->second.FieldIndex.find(Field.upper());
+    if (FieldIt == TypeIt->second.FieldIndex.end())
+      return nullptr;
+    Index = FieldIt->second;
+    return &TypeIt->second.Fields[Index];
+  }
+
+  // Walks a parsed designator tree (a Var/Call root with optional trailing
+  // Index-argument children and/or a chain of nested Field children, e.g.
+  // `arr(i).b.c(j)`) and resolves it to a pointer plus type/kind info. The
+  // named local must already exist.
+  bool resolveDesignator(const ASTNode &Root, DesignatorState &State) {
+    auto It = Locals.find(Root.Text);
+    if (It == Locals.end())
+      return error(Root, "unknown variable: " + Root.Text);
+    LocalInfo &Local = It->second;
+
+    State.Ptr = Local.Slot;
+    State.ElemTy = Local.ElementTy;
+    State.StorageTy = Local.StorageTy;
+    State.Kind = Local.Kind;
+    State.IsArray = Local.IsArray;
+    State.RecordTypeName = Local.RecordTypeName;
+
+    if (State.IsArray) {
+      std::vector<Value *> Indices;
+      Indices.push_back(ConstantInt::get(i32Ty(), 0));
+      for (const std::unique_ptr<ASTNode> &Child : Root.Children) {
+        if (Child->Kind == "Field")
+          continue;
+        Value *Idx = emitExpr(*Child);
+        if (!Idx)
+          return false;
+        Indices.push_back(coerceScalar(Idx, i32Ty()));
+      }
+      if (Indices.size() > 1) {
+        State.Ptr = Builder.CreateInBoundsGEP(State.StorageTy, State.Ptr, Indices);
+        State.StorageTy = State.ElemTy;
+        State.IsArray = false;
+      }
+    }
+
+    const ASTNode *FieldNode = firstChildKind(Root, "Field");
+    while (FieldNode) {
+      if (State.IsArray)
+        return error(*FieldNode,
+                     "array reference requires an index before field access: " +
+                         FieldNode->Text);
+      if (State.Kind != BasicKind::Record)
+        return error(*FieldNode, "value is not a record: " + FieldNode->Text);
+      unsigned Index = 0;
+      const RecordFieldInfo *FieldInfo =
+          findRecordField(State.RecordTypeName, FieldNode->Text, Index);
+      if (!FieldInfo)
+        return error(*FieldNode, "unknown field: " + FieldNode->Text);
+
+      State.Ptr = Builder.CreateInBoundsGEP(
+          State.StorageTy, State.Ptr,
+          {ConstantInt::get(i32Ty(), 0), ConstantInt::get(i32Ty(), Index)});
+      State.Kind = FieldInfo->Kind;
+      State.ElemTy = FieldInfo->ElementTy;
+      State.StorageTy = FieldInfo->StorageTy;
+      State.IsArray = FieldInfo->IsArray;
+      State.RecordTypeName = FieldInfo->RecordTypeName;
+
+      if (State.IsArray) {
+        std::vector<Value *> Indices;
+        Indices.push_back(ConstantInt::get(i32Ty(), 0));
+        for (const std::unique_ptr<ASTNode> &Child : FieldNode->Children) {
+          if (Child->Kind == "Field")
+            continue;
+          Value *Idx = emitExpr(*Child);
+          if (!Idx)
+            return false;
+          Indices.push_back(coerceScalar(Idx, i32Ty()));
+        }
+        if (Indices.size() > 1) {
+          State.Ptr =
+              Builder.CreateInBoundsGEP(State.StorageTy, State.Ptr, Indices);
+          State.StorageTy = State.ElemTy;
+          State.IsArray = false;
+        }
+      }
+
+      FieldNode = firstChildKind(*FieldNode, "Field");
+    }
+    return true;
+  }
+
+  // Like resolveDesignator, but auto-creates an implicit scalar local when
+  // Root is a bare, undeclared identifier (matching BASIC09's implicit
+  // variable declaration rules).
+  bool resolveOrCreateDesignator(const ASTNode &Root, DesignatorState &State) {
+    if (!Locals.count(Root.Text)) {
+      if (Root.Kind != "Var" || !Root.Children.empty())
+        return error(Root, "unknown variable: " + Root.Text);
+      LocalInfo *Local = getOrCreateScalarLocal(Root.Text);
+      if (!Local)
+        return false;
+      State.Ptr = Local->Slot;
+      State.ElemTy = Local->ElementTy;
+      State.StorageTy = Local->StorageTy;
+      State.Kind = Local->Kind;
+      State.IsArray = false;
+      State.RecordTypeName = Local->RecordTypeName;
+      return true;
+    }
+    return resolveDesignator(Root, State);
+  }
+
+  Value *loadDesignatorValue(const DesignatorState &State, const ASTNode &At) {
+    if (State.IsArray) {
+      error(At, "array value requires an index");
+      return nullptr;
+    }
+    if (State.Kind == BasicKind::String)
+      return stringDataPtr(State.ElemTy, State.Ptr);
+    return Builder.CreateLoad(State.ElemTy, State.Ptr);
   }
 
   LocalInfo *getOrCreateScalarLocal(StringRef Name) {

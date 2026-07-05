@@ -191,13 +191,20 @@ private:
       if (consume(".")) {
         if (atEnd())
           break;
-        Token Field = peek();
-        ++Index;
-        auto FieldNode =
-            std::make_unique<ASTNode>("Field", Field.Text, Field.Line);
-        if (consume("("))
-          parseArgumentList(*FieldNode, ")");
-        Node->Children.push_back(std::move(FieldNode));
+        ASTNode *Current = Node.get();
+        while (true) {
+          Token Field = peek();
+          ++Index;
+          auto FieldNode =
+              std::make_unique<ASTNode>("Field", Field.Text, Field.Line);
+          if (consume("("))
+            parseArgumentList(*FieldNode, ")");
+          ASTNode *FieldPtr = FieldNode.get();
+          Current->Children.push_back(std::move(FieldNode));
+          Current = FieldPtr;
+          if (atEnd() || !consume("."))
+            break;
+        }
         continue;
       }
       if (consume("(")) {
@@ -419,8 +426,11 @@ static void appendTargets(ASTNode &Node, StringRef Role,
   for (ArrayRef<Token> Part : splitTopLevel(Tokens, ",")) {
     if (Part.empty())
       continue;
-    Node.Children.push_back(std::make_unique<ASTNode>(
-        Role.str(), tokensText(Part), Part.front().Line));
+    auto Target = std::make_unique<ASTNode>(Role.str(), tokensText(Part),
+                                            Part.front().Line);
+    if (std::unique_ptr<ASTNode> Parsed = parseExpression(Part))
+      Target->Children.push_back(std::move(Parsed));
+    Node.Children.push_back(std::move(Target));
   }
 }
 
@@ -669,8 +679,12 @@ void Parser::appendStatementDetails(ASTNode &Node, StringRef Kind,
       Op = findToken(L, "=");
     if (Op != L.size()) {
       size_t LHSBegin = firstTokenText(L) == "LET" ? 1 : 0;
-      Node.Children.push_back(std::make_unique<ASTNode>(
-          "LHS", lineText(sliceLine(L, LHSBegin, Op)), L[LHSBegin].Line));
+      Line LHSLine = sliceLine(L, LHSBegin, Op);
+      auto LHSNode = std::make_unique<ASTNode>(
+          "LHS", lineText(LHSLine), L[LHSBegin].Line);
+      if (std::unique_ptr<ASTNode> Parsed = parseExpression(LHSLine))
+        LHSNode->Children.push_back(std::move(Parsed));
+      Node.Children.push_back(std::move(LHSNode));
       appendExpression(Node, "RHS", sliceLine(L, Op + 1, L.size()));
     }
     return;

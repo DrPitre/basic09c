@@ -1,0 +1,64 @@
+PROCEDURE recordfiletest
+TYPE point=x:INTEGER; y:INTEGER
+TYPE widget=id:INTEGER; flag:BYTE; ratio:REAL; label:STRING[20]; origin:point; samples(4):BYTE
+DIM w,r:widget
+DIM path,i,ok:INTEGER
+DIM passed,failed:INTEGER
+
+passed:=0
+failed:=0
+
+w.id:=4711
+w.flag:=1
+w.ratio:=3.14159
+w.label:="COMPLICATED"
+w.origin.x:=-7
+w.origin.y:=42
+FOR i:=0 TO 4
+w.samples(i):=i*11
+NEXT i
+
+CREATE #path,"record.dat":UPDATE
+PUT #path,w
+CLOSE #path
+
+OPEN #path,"record.dat":UPDATE
+GET #path,r
+CLOSE #path
+
+ok:=1
+IF r.id<>w.id THEN ok:=0 ENDIF
+IF r.flag<>w.flag THEN ok:=0 ENDIF
+IF ABS(r.ratio-w.ratio)>.00001 THEN ok:=0 ENDIF
+IF r.label<>w.label THEN ok:=0 ENDIF
+IF r.origin.x<>w.origin.x THEN ok:=0 ENDIF
+IF r.origin.y<>w.origin.y THEN ok:=0 ENDIF
+FOR i:=0 TO 4
+IF r.samples(i)<>w.samples(i) THEN ok:=0 ENDIF
+NEXT i
+
+IF ok=1 THEN
+PRINT "PASS record roundtrip byte identical"
+passed:=passed+1
+ELSE
+PRINT "FAIL record roundtrip byte identical"
+failed:=failed+1
+ENDIF
+
+PRINT r.id
+PRINT r.flag
+PRINT r.ratio
+PRINT r.label
+PRINT r.origin.x
+PRINT r.origin.y
+FOR i:=0 TO 4
+PRINT r.samples(i)
+NEXT i
+
+DELETE "record.dat"
+
+PRINT "----------------------"
+PRINT "Passed: ";passed
+PRINT "Failed: ";failed
+
+END
