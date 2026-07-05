@@ -1,0 +1,82 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/degrad %t/degrad.b09
+# RUN: %t/degrad | FileCheck %s --check-prefix=DEGRAD
+# RUN: basic09c --compile --cc %cc -o %t/base0 %t/base0.b09
+# RUN: %t/base0 | FileCheck %s --check-prefix=BASE0
+# RUN: not basic09c --compile --cc %cc -o %t/base1 %t/base1.b09 2>&1 | FileCheck %s --check-prefix=BASE1
+# RUN: basic09c --compile --cc %cc -o %t/chd %t/chd.b09
+# RUN: %t/chd | FileCheck %s --check-prefix=CHD
+# RUN: basic09c --compile --cc %cc -o %t/bye %t/bye.b09
+# RUN: %t/bye | FileCheck %s --check-prefix=BYE
+# RUN: %t/bye
+
+# DEGRAD: 1
+# DEGRAD-NEXT: -1
+# DEGRAD-NEXT: 45
+# DEGRAD-NEXT: 1
+# DEGRAD-NEXT: 0.785398
+
+# BASE0: OK
+
+# BASE1: BASE only supports 0 (arrays are always zero-based)
+
+# CHD: CHD OK
+# CHD-NEXT: TRAPPED CHX FAILURE
+
+# BYE: BEFORE BYE
+# BYE-NOT: AFTER BYE
+
+#--- degrad.b09
+PROCEDURE degrad
+DIM a:REAL
+
+DEG
+a:=SIN(90)
+PRINT a
+a:=COS(180)
+PRINT a
+a:=ATN(1)
+PRINT a
+
+RAD
+a:=SIN(1.5707963267949)
+PRINT a
+a:=ATN(1)
+PRINT a
+
+END
+
+#--- base0.b09
+PROCEDURE base0
+DIM a(3):INTEGER
+BASE 0
+a(0):=1
+PRINT "OK"
+END
+
+#--- base1.b09
+PROCEDURE base1
+BASE 1
+END
+
+#--- chd.b09
+PROCEDURE chd
+CHD "/tmp"
+PRINT "CHD OK"
+
+ON ERROR GOTO 100
+CHX "/nonexistent-dir-xyz"
+PRINT "SHOULD NOT REACH"
+100    ON ERROR
+PRINT "TRAPPED CHX FAILURE"
+
+END
+
+#--- bye.b09
+PROCEDURE bye
+PRINT "BEFORE BYE"
+BYE
+PRINT "AFTER BYE"
+END

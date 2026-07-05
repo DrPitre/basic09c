@@ -152,6 +152,7 @@ private:
   AllocaInst *GosubSP = nullptr;
   size_t DataCursor = 0;
   BasicBlock *ErrorTrapBlock = nullptr;
+  bool DegreesMode = false;
 
   Type *i16Ty() { return Type::getInt16Ty(Context); }
   Type *i32Ty() { return Type::getInt32Ty(Context); }
@@ -383,6 +384,16 @@ private:
       return emitOnErrorGoto(Stmt);
     if (Stmt.Kind == "OnError")
       return emitOnErrorClear(Stmt);
+    if (Stmt.Kind == "Bye")
+      return emitBye(Stmt);
+    if (Stmt.Kind == "Deg")
+      return emitDeg(Stmt);
+    if (Stmt.Kind == "Rad")
+      return emitRad(Stmt);
+    if (Stmt.Kind == "Base")
+      return emitBase(Stmt);
+    if (Stmt.Kind == "Chd" || Stmt.Kind == "Chx")
+      return emitChangeDir(Stmt);
     if (Stmt.Kind == "OnGoto" || Stmt.Kind == "OnGosub")
       return emitComputedBranch(Stmt);
     if (Stmt.Kind == "Type" || Stmt.Kind == "Param")
@@ -831,6 +842,51 @@ private:
     if (!NameVal->getType()->isPointerTy())
       return error(*Argument, "DELETE expects a string file name");
     Builder.CreateCall(getFileDeleteFn(), {NameVal});
+    return true;
+  }
+
+  bool emitBye(const ASTNode &Stmt) {
+    Builder.CreateCall(getExit(), {ConstantInt::get(i32Ty(), 0)});
+    Builder.CreateUnreachable();
+    BasicBlock *AfterBye =
+        BasicBlock::Create(Context, "after.bye", CurrentFunction);
+    Builder.SetInsertPoint(AfterBye);
+    return true;
+  }
+
+  bool emitDeg(const ASTNode &Stmt) {
+    DegreesMode = true;
+    return true;
+  }
+
+  bool emitRad(const ASTNode &Stmt) {
+    DegreesMode = false;
+    return true;
+  }
+
+  bool emitBase(const ASTNode &Stmt) {
+    const ASTNode *Argument = firstChildKind(Stmt, "Argument");
+    if (!Argument || Argument->Children.empty())
+      return true;
+    double Base = 0;
+    if (!constantDataNumber(*Argument->Children.front(), Base) || Base != 0)
+      return error(*Argument, "BASE only supports 0 (arrays are always "
+                              "zero-based)");
+    return true;
+  }
+
+  bool emitChangeDir(const ASTNode &Stmt) {
+    const ASTNode *Argument = firstChildKind(Stmt, "Argument");
+    if (!Argument)
+      return error(Stmt, Stmt.Kind + " requires a directory path");
+    Value *PathVal = emitExprChild(*Argument);
+    if (!PathVal)
+      return false;
+    if (!PathVal->getType()->isPointerTy())
+      return error(*Argument, Stmt.Kind + " expects a string path");
+    Value *Status = Builder.CreateCall(getChdir(), {PathVal});
+    Value *Failed = Builder.CreateICmpNE(Status, ConstantInt::get(i32Ty(), 0));
+    emitErrorTrapCheck(Failed);
     return true;
   }
 
@@ -2088,15 +2144,18 @@ private:
     if (Expr.Text == "INT")
       return Builder.CreateCall(getUnaryDoubleFn("floor"), {Arg});
     if (Expr.Text == "COS")
-      return Builder.CreateCall(getUnaryDoubleFn("cos"), {Arg});
+      return Builder.CreateCall(getUnaryDoubleFn("cos"), {emitToRadians(Arg)});
     if (Expr.Text == "SIN")
-      return Builder.CreateCall(getUnaryDoubleFn("sin"), {Arg});
+      return Builder.CreateCall(getUnaryDoubleFn("sin"), {emitToRadians(Arg)});
     if (Expr.Text == "ATN")
-      return Builder.CreateCall(getUnaryDoubleFn("atan"), {Arg});
+      return emitFromRadians(
+          Builder.CreateCall(getUnaryDoubleFn("atan"), {Arg}));
     if (Expr.Text == "ACS")
-      return Builder.CreateCall(getUnaryDoubleFn("acos"), {Arg});
+      return emitFromRadians(
+          Builder.CreateCall(getUnaryDoubleFn("acos"), {Arg}));
     if (Expr.Text == "ASN")
-      return Builder.CreateCall(getUnaryDoubleFn("asin"), {Arg});
+      return emitFromRadians(
+          Builder.CreateCall(getUnaryDoubleFn("asin"), {Arg}));
     if (Expr.Text == "SQR")
       return Builder.CreateCall(getUnaryDoubleFn("sqrt"), {Arg});
     if (Expr.Text == "FIX")
@@ -2325,6 +2384,22 @@ private:
         Positive, ConstantInt::get(i16Ty(), 1),
         Builder.CreateSelect(Negative, ConstantInt::getSigned(i16Ty(), -1),
                              ConstantInt::get(i16Ty(), 0)));
+  }
+
+  // Trig builtins operate on radians internally; DEG makes them accept and
+  // return degrees instead, matching OS-9 BASIC09's DEG/RAD mode toggle.
+  Value *emitToRadians(Value *Arg) {
+    if (!DegreesMode)
+      return Arg;
+    return Builder.CreateFMul(
+        Arg, ConstantFP::get(doubleTy(), 3.14159265358979323846 / 180.0));
+  }
+
+  Value *emitFromRadians(Value *Arg) {
+    if (!DegreesMode)
+      return Arg;
+    return Builder.CreateFMul(
+        Arg, ConstantFP::get(doubleTy(), 180.0 / 3.14159265358979323846));
   }
 
   Value *emitArrayElementPtr(const ASTNode &Call) {
@@ -2812,6 +2887,17 @@ private:
     FunctionType *FT =
         FunctionType::get(i32Ty(), PointerType::getUnqual(Context), false);
     return M->getOrInsertFunction("system", FT);
+  }
+
+  FunctionCallee getExit() {
+    FunctionType *FT = FunctionType::get(Type::getVoidTy(Context), {i32Ty()}, false);
+    return M->getOrInsertFunction("exit", FT);
+  }
+
+  FunctionCallee getChdir() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(i32Ty(), {PtrTy}, false);
+    return M->getOrInsertFunction("chdir", FT);
   }
 
   FunctionCallee getFileOpenFn() {

@@ -737,6 +737,12 @@ void Parser::appendStatementDetails(ASTNode &Node, StringRef Kind,
     return;
   }
 
+  if (Kind == "Base") {
+    if (L.size() > 1)
+      appendParsedExpression(Node, "Argument", ArrayRef<Token>(L).slice(1));
+    return;
+  }
+
   if (Kind == "Poke") {
     size_t Comma = findTopLevelToken(ArrayRef<Token>(L), ",", 1);
     appendParsedExpression(Node, "Address",
@@ -823,7 +829,7 @@ void Parser::appendStatementDetails(ASTNode &Node, StringRef Kind,
     return;
   }
 
-  if (Kind == "Delete" || Kind == "Chd" || Kind == "Shell") {
+  if (Kind == "Delete" || Kind == "Chd" || Kind == "Chx" || Kind == "Shell") {
     if (L.size() > 1)
       appendParsedExpression(Node, "Argument", ArrayRef<Token>(L).slice(1));
     return;
