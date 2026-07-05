@@ -1,0 +1,64 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/dataread %t/dataread.b09
+# RUN: %t/dataread | FileCheck %s
+
+# CHECK: 5
+# CHECK-NEXT: 3.5
+# CHECK-NEXT: HELLO
+# CHECK-NEXT: 10
+# CHECK-NEXT: 20
+# CHECK-NEXT: 30
+# CHECK-NEXT: FIRST
+# CHECK-NEXT: SECOND
+# CHECK-NEXT: FIRST
+# CHECK-NEXT: SQRT OK
+
+#--- dataread.b09
+PROCEDURE dataread
+DIM a:INTEGER
+DIM b:REAL
+DIM c$:STRING[10]
+DIM i,v:INTEGER
+DIM f$:STRING[10]
+DIM s$:STRING[10]
+
+REM mixed-type DATA/READ, with DATA declared after the READs that use it
+READ a
+READ b
+READ c$
+PRINT a
+PRINT b
+PRINT c$
+
+REM READ inside a loop must advance through DATA on every iteration
+FOR i=1 TO 3
+READ v
+PRINT v
+NEXT i
+
+RUN restoretest
+
+IF SQRT(4)=SQR(4) THEN
+PRINT "SQRT OK"
+ENDIF
+
+DATA 5, 3.5, "HELLO"
+DATA 10,20,30
+END
+
+PROCEDURE restoretest
+DIM f$,s$:STRING[10]
+
+REM RESTORE rewinds the cursor, including over string values
+READ f$
+READ s$
+PRINT f$
+PRINT s$
+RESTORE
+READ f$
+PRINT f$
+
+DATA "FIRST","SECOND"
+END

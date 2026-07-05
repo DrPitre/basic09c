@@ -14,6 +14,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -73,6 +74,12 @@ struct RecordTypeInfo {
   std::vector<RecordFieldInfo> Fields;
   StructType *IRTy = nullptr;
   StringMap<unsigned> FieldIndex;
+};
+
+struct DataValue {
+  bool IsString = false;
+  double Number = 0.0;
+  std::string Text;
 };
 
 struct DesignatorState {
@@ -146,12 +153,15 @@ private:
   StringMap<RecordTypeInfo> GlobalRecordTypes;
   StringMap<BasicBlock *> LabelBlocks;
   std::vector<BasicBlock *> LoopExits;
-  std::vector<double> DataValues;
+  std::vector<DataValue> DataValues;
   std::vector<BasicBlock *> GosubReturnBlocks;
   std::vector<SwitchInst *> ReturnSwitches;
   AllocaInst *GosubStack = nullptr;
   AllocaInst *GosubSP = nullptr;
-  size_t DataCursor = 0;
+  GlobalVariable *DataNumbersGlobal = nullptr;
+  GlobalVariable *DataStringsGlobal = nullptr;
+  GlobalVariable *DataIsStringGlobal = nullptr;
+  AllocaInst *DataCursorSlot = nullptr;
   BasicBlock *ErrorTrapBlock = nullptr;
   bool DegreesMode = false;
 
@@ -218,7 +228,10 @@ private:
     DataValues.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
-    DataCursor = 0;
+    DataNumbersGlobal = nullptr;
+    DataStringsGlobal = nullptr;
+    DataIsStringGlobal = nullptr;
+    DataCursorSlot = nullptr;
     ErrorTrapBlock = nullptr;
     initializeGosubStack();
 
@@ -235,6 +248,9 @@ private:
     const ASTNode *Body = firstChildKind(Procedure, "Block");
     if (Body)
       collectLabels(*Body);
+    if (Body && !collectDataStatements(*Body))
+      return false;
+    buildDataTables(Name);
     if (Body && !emitBlock(*Body))
       return false;
 
@@ -249,7 +265,10 @@ private:
     ReturnSwitches.clear();
     GosubStack = nullptr;
     GosubSP = nullptr;
-    DataCursor = 0;
+    DataNumbersGlobal = nullptr;
+    DataStringsGlobal = nullptr;
+    DataIsStringGlobal = nullptr;
+    DataCursorSlot = nullptr;
     ErrorTrapBlock = nullptr;
     return true;
   }
@@ -296,9 +315,17 @@ private:
     DataValues.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
-    DataCursor = 0;
+    DataNumbersGlobal = nullptr;
+    DataStringsGlobal = nullptr;
+    DataIsStringGlobal = nullptr;
+    DataCursorSlot = nullptr;
     ErrorTrapBlock = nullptr;
     initializeGosubStack();
+
+    for (const ASTNode *Stmt : Statements)
+      if (!collectDataStatements(*Stmt))
+        return false;
+    buildDataTables("main");
 
     for (const ASTNode *Stmt : Statements)
       if (!emitStatement(*Stmt))
@@ -315,7 +342,10 @@ private:
     ReturnSwitches.clear();
     GosubStack = nullptr;
     GosubSP = nullptr;
-    DataCursor = 0;
+    DataNumbersGlobal = nullptr;
+    DataStringsGlobal = nullptr;
+    DataIsStringGlobal = nullptr;
+    DataCursorSlot = nullptr;
     ErrorTrapBlock = nullptr;
     return true;
   }
@@ -661,18 +691,102 @@ private:
     Builder.CreateStore(ConstantInt::get(i32Ty(), ReturnID), Slot);
   }
 
-  bool emitData(const ASTNode &Stmt) {
+  bool collectDataStatements(const ASTNode &Node) {
+    if (Node.Kind == "Data")
+      return collectDataValue(Node);
+    for (const std::unique_ptr<ASTNode> &Child : Node.Children)
+      if (!collectDataStatements(*Child))
+        return false;
+    return true;
+  }
+
+  bool collectDataValue(const ASTNode &Stmt) {
     for (const std::unique_ptr<ASTNode> &Value : Stmt.Children) {
-      double Number = 0.0;
-      if (!constantDataNumber(*Value, Number))
-        return error(*Value, "only numeric DATA values are supported");
-      DataValues.push_back(Number);
+      const ASTNode *Parsed =
+          Value->Children.empty() ? nullptr : Value->Children.front().get();
+      if (Parsed && Parsed->Kind == "String") {
+        DataValue V;
+        V.IsString = true;
+        V.Text = unquote(Parsed->Text);
+        DataValues.push_back(std::move(V));
+        continue;
+      }
+      DataValue V;
+      if (!constantDataNumber(*Value, V.Number))
+        return error(*Value, "DATA value must be a numeric or string literal");
+      DataValues.push_back(V);
     }
     return true;
   }
 
+  // Builds a module-level runtime table for every DATA value collected in
+  // this procedure (numbers, string pointers, and a type tag per entry) plus
+  // a runtime cursor slot. READ indexes this table with a *runtime* value so
+  // that READ inside a loop advances through DATA on every iteration, unlike
+  // a compile-time cursor which would bake in a single constant per READ
+  // call site.
+  void buildDataTables(StringRef ProcName) {
+    size_t N = DataValues.size();
+    Type *PtrTy = PointerType::getUnqual(Context);
+    Type *I8Ty = Type::getInt8Ty(Context);
+
+    std::vector<Constant *> Numbers;
+    std::vector<Constant *> IsStringFlags;
+    std::vector<Constant *> Strings;
+    Numbers.reserve(N);
+    IsStringFlags.reserve(N);
+    Strings.reserve(N);
+    for (const DataValue &V : DataValues) {
+      Numbers.push_back(
+          ConstantFP::get(doubleTy(), V.IsString ? 0.0 : V.Number));
+      IsStringFlags.push_back(ConstantInt::get(I8Ty, V.IsString ? 1 : 0));
+      Strings.push_back(V.IsString
+                            ? static_cast<Constant *>(
+                                  Builder.CreateGlobalString(V.Text))
+                            : ConstantPointerNull::get(
+                                  cast<PointerType>(PtrTy)));
+    }
+
+    ArrayType *NumbersTy = ArrayType::get(doubleTy(), N);
+    ArrayType *IsStringTy = ArrayType::get(I8Ty, N);
+    ArrayType *StringsTy = ArrayType::get(PtrTy, N);
+
+    DataNumbersGlobal = new GlobalVariable(
+        *M, NumbersTy, /*isConstant=*/true, GlobalValue::PrivateLinkage,
+        ConstantArray::get(NumbersTy, Numbers),
+        (ProcName + ".data.numbers").str());
+    DataIsStringGlobal = new GlobalVariable(
+        *M, IsStringTy, /*isConstant=*/true, GlobalValue::PrivateLinkage,
+        ConstantArray::get(IsStringTy, IsStringFlags),
+        (ProcName + ".data.isstring").str());
+    DataStringsGlobal = new GlobalVariable(
+        *M, StringsTy, /*isConstant=*/true, GlobalValue::PrivateLinkage,
+        ConstantArray::get(StringsTy, Strings),
+        (ProcName + ".data.strings").str());
+
+    DataCursorSlot = Builder.CreateAlloca(i32Ty(), nullptr, "data.cursor");
+    Builder.CreateStore(ConstantInt::get(i32Ty(), 0), DataCursorSlot);
+  }
+
+  // Prints a fatal error message, terminates the process, and leaves the
+  // builder positioned in a fresh (unreachable) block so callers can freely
+  // redirect control flow afterward without producing invalid IR.
+  void emitFatalRuntimeError(const Twine &Message) {
+    Builder.CreateCall(getPrintf(),
+                       {Builder.CreateGlobalString(
+                            ("basic09: " + Message + "\n").str())});
+    Builder.CreateCall(getExit(), {ConstantInt::get(i32Ty(), 1)});
+    Builder.CreateUnreachable();
+    BasicBlock *After =
+        BasicBlock::Create(Context, "after.trap", CurrentFunction);
+    Builder.SetInsertPoint(After);
+    Builder.CreateUnreachable();
+  }
+
+  bool emitData(const ASTNode &) { return true; }
+
   bool emitRestore(const ASTNode &) {
-    DataCursor = 0;
+    Builder.CreateStore(ConstantInt::get(i32Ty(), 0), DataCursorSlot);
     return true;
   }
 
@@ -680,12 +794,80 @@ private:
     for (const std::unique_ptr<ASTNode> &Target : Stmt.Children) {
       if (Target->Kind != "Target")
         continue;
-      if (DataCursor >= DataValues.size())
-        return error(*Target, "READ ran past available DATA values");
-      if (!emitStoreDesignator(*Target,
-                               ConstantFP::get(doubleTy(),
-                                               DataValues[DataCursor++])))
+      if (Target->Children.empty())
+        return error(*Target, "designator is missing: " + Target->Text);
+      const ASTNode &Root = *Target->Children.front();
+      DesignatorState State;
+      if (!resolveOrCreateDesignator(Root, State))
         return false;
+      if (State.IsArray)
+        return error(*Target, "READ target requires an index");
+
+      Value *Cursor = Builder.CreateLoad(i32Ty(), DataCursorSlot, "data.cur");
+      Value *InBounds = Builder.CreateICmpULT(
+          Cursor, ConstantInt::get(i32Ty(), DataValues.size()));
+
+      BasicBlock *OkBB = BasicBlock::Create(Context, "data.ok", CurrentFunction);
+      BasicBlock *OobBB =
+          BasicBlock::Create(Context, "data.oob", CurrentFunction);
+      Builder.CreateCondBr(InBounds, OkBB, OobBB);
+
+      Builder.SetInsertPoint(OobBB);
+      emitFatalRuntimeError("READ ran past available DATA values");
+
+      Builder.SetInsertPoint(OkBB);
+      Builder.CreateStore(
+          Builder.CreateAdd(Cursor, ConstantInt::get(i32Ty(), 1)),
+          DataCursorSlot);
+
+      Value *IsStringFlag = Builder.CreateLoad(
+          Type::getInt8Ty(Context),
+          Builder.CreateInBoundsGEP(DataIsStringGlobal->getValueType(),
+                                    DataIsStringGlobal,
+                                    {ConstantInt::get(i32Ty(), 0), Cursor}));
+      Value *IsString = Builder.CreateICmpNE(
+          IsStringFlag, ConstantInt::get(Type::getInt8Ty(Context), 0));
+
+      BasicBlock *StrBB =
+          BasicBlock::Create(Context, "data.str", CurrentFunction);
+      BasicBlock *NumBB =
+          BasicBlock::Create(Context, "data.num", CurrentFunction);
+      BasicBlock *MergeBB =
+          BasicBlock::Create(Context, "data.merge", CurrentFunction);
+      Builder.CreateCondBr(IsString, StrBB, NumBB);
+
+      Builder.SetInsertPoint(StrBB);
+      if (State.Kind != BasicKind::String) {
+        emitFatalRuntimeError("cannot READ a string DATA value into a "
+                              "numeric variable: " +
+                              Target->Text);
+      } else {
+        Value *StrPtr = Builder.CreateLoad(
+            PointerType::getUnqual(Context),
+            Builder.CreateInBoundsGEP(DataStringsGlobal->getValueType(),
+                                      DataStringsGlobal,
+                                      {ConstantInt::get(i32Ty(), 0), Cursor}));
+        Builder.CreateCall(getStrcpy(),
+                           {stringDataPtr(State.ElemTy, State.Ptr), StrPtr});
+        Builder.CreateBr(MergeBB);
+      }
+
+      Builder.SetInsertPoint(NumBB);
+      if (State.Kind == BasicKind::String) {
+        emitFatalRuntimeError("cannot READ a numeric DATA value into a "
+                              "string variable: " +
+                              Target->Text);
+      } else {
+        Value *NumVal = Builder.CreateLoad(
+            doubleTy(),
+            Builder.CreateInBoundsGEP(DataNumbersGlobal->getValueType(),
+                                      DataNumbersGlobal,
+                                      {ConstantInt::get(i32Ty(), 0), Cursor}));
+        Builder.CreateStore(coerceScalar(NumVal, State.ElemTy), State.Ptr);
+        Builder.CreateBr(MergeBB);
+      }
+
+      Builder.SetInsertPoint(MergeBB);
     }
     return true;
   }
@@ -2164,7 +2346,7 @@ private:
     if (Expr.Text == "ASN")
       return emitFromRadians(
           Builder.CreateCall(getUnaryDoubleFn("asin"), {Arg}));
-    if (Expr.Text == "SQR")
+    if (Expr.Text == "SQR" || Expr.Text == "SQRT")
       return Builder.CreateCall(getUnaryDoubleFn("sqrt"), {Arg});
     if (Expr.Text == "FIX")
       return Builder.CreateFPToSI(Arg, i16Ty());
