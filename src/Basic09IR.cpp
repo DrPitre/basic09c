@@ -49,6 +49,7 @@ struct ParamInfo {
   Type *StorageTy = nullptr;
   Type *ElementTy = nullptr;
   BasicKind Kind = BasicKind::Integer;
+  bool IsArray = false;
   uint64_t StringLength = 0;
   std::string RecordTypeName;
 };
@@ -227,7 +228,7 @@ private:
       Arg.setName(Param.Name);
       Locals[Param.Name] = {&Arg,          Param.StorageTy,
                             Param.ElementTy, Param.Kind,
-                            false,         Param.StringLength,
+                            Param.IsArray, Param.StringLength,
                             Param.RecordTypeName};
     }
 
@@ -272,6 +273,13 @@ private:
                           Param.StringLength, Param.RecordTypeName))
           return false;
         Param.StorageTy = Param.ElementTy;
+        std::vector<uint64_t> Bounds;
+        for (const std::unique_ptr<ASTNode> &Child : Decl->Children)
+          if (Child->Kind == "Bound")
+            Bounds.push_back(constantExtent(*Child));
+        for (uint64_t Bound : llvm::reverse(Bounds))
+          Param.StorageTy = ArrayType::get(Param.StorageTy, Bound + 1);
+        Param.IsArray = !Bounds.empty();
         Params.push_back(Param);
       }
     }

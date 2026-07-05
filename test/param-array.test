@@ -1,0 +1,54 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/paramarray %t/paramarray.b09
+# RUN: %t/paramarray | FileCheck %s
+
+# CHECK: 1
+# CHECK-NEXT: 111
+# CHECK-NEXT: 99
+# CHECK-NEXT: OK
+
+#--- paramarray.b09
+PROCEDURE paramarray
+DIM col(8):BOOLEAN
+DIM d(5):INTEGER
+DIM e(5):INTEGER
+DIM h:INTEGER
+
+h:=1
+col(h):=TRUE
+RUN readback(col,h)
+
+d(0):=111
+d(1):=222
+h:=1
+RUN writeindex(d,h)
+PRINT d(0)
+PRINT d(1)
+
+e(0):=5
+h:=0
+RUN compareindex(e,h)
+
+END
+
+PROCEDURE readback
+PARAM col(8):BOOLEAN
+PARAM h:INTEGER
+PRINT col(h)
+END
+
+PROCEDURE writeindex
+PARAM d(5):INTEGER
+PARAM h:INTEGER
+d(h):=99
+END
+
+PROCEDURE compareindex
+PARAM e(5):INTEGER
+PARAM h:INTEGER
+IF e(h)=5 THEN
+PRINT "OK"
+ENDIF
+END
