@@ -1,0 +1,41 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/emptybody %t/emptybody.b09
+# RUN: %t/emptybody | FileCheck %s
+
+# CHECK: FOR ONE-LINER
+# CHECK-NEXT: FOR EMPTY BODY
+# CHECK-NEXT: WHILE EMPTY BODY
+# CHECK-NEXT: REPEAT EMPTY BODY
+# CHECK-NEXT: LOOP EMPTY BODY
+
+#--- emptybody.b09
+PROCEDURE emptybody
+DIM k:INTEGER
+
+FOR k=1 TO 5 \NEXT k
+PRINT "FOR ONE-LINER"
+
+FOR k=1 TO 5
+NEXT k
+PRINT "FOR EMPTY BODY"
+
+k:=0
+WHILE k<0
+ENDWHILE
+PRINT "WHILE EMPTY BODY"
+
+k:=1
+REPEAT
+UNTIL k=1
+PRINT "REPEAT EMPTY BODY"
+
+k:=0
+LOOP
+EXITIF k=0 THEN
+ENDEXIT
+ENDLOOP
+PRINT "LOOP EMPTY BODY"
+
+END

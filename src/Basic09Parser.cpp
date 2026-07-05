@@ -621,7 +621,9 @@ std::unique_ptr<ASTNode> Parser::parseDelimitedBlock(StringRef Kind,
     }
     return Node;
   }
-  if (!currentContains(EndKeyword))
+  if (currentContains(EndKeyword))
+    Node->Children.push_back(std::make_unique<ASTNode>("Block"));
+  else
     Node->Children.push_back(parseBlockUntil({EndKeyword}));
   if (currentStartsWith(EndKeyword)) {
     Line End = consumeLine();
