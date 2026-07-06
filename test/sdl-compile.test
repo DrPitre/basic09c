@@ -9,6 +9,7 @@
 # RUN: env SDL_VIDEODRIVER=dummy %t/sdl
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-demo %S/sdl-demo.b09
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-invaders %S/sdl-invaders.b09
+# RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-life %S/sdl-life.b09
 
 # NO-SDL: source uses SDL runtime calls; pass --sdl with --compile
 

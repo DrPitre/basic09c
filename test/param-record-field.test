@@ -1,0 +1,44 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/paramfield %t/paramfield.b09
+# RUN: %t/paramfield | FileCheck %s
+
+# CHECK: 13
+# CHECK-NEXT: K
+# CHECK-NEXT: 2
+# CHECK-NEXT: H
+
+#--- paramfield.b09
+TYPE card=rank:INTEGER; suit:INTEGER
+
+PROCEDURE showint
+PARAM r:INTEGER
+PRINT r
+END
+
+PROCEDURE rankname
+PARAM r:INTEGER
+PARAM name$:STRING
+IF r=13 THEN name$:="K" ENDIF
+END
+
+PROCEDURE suitname
+PARAM s:INTEGER
+PARAM name$:STRING
+IF s=2 THEN name$:="H" ENDIF
+END
+
+PROCEDURE paramrecordfield
+DIM c:card
+DIM n$:STRING
+c.rank:=13
+c.suit:=2
+
+RUN showint(c.rank)
+RUN rankname(c.rank,n$)
+PRINT n$
+RUN showint(c.suit)
+RUN suitname(c.suit,n$)
+PRINT n$
+END

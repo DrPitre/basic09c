@@ -1,0 +1,81 @@
+PROCEDURE sdllife
+DIM w,h,cell:INTEGER
+DIM x,y,nx,ny,dx,dy,n:INTEGER
+DIM key,quit,gen:INTEGER
+DIM cur(63,47),nxt(63,47):BYTE
+
+w:=64
+h:=48
+cell:=6
+
+RUN sdl("open",w*cell,h*cell)
+
+REM seed a glider near the top-left
+cur(1,0):=1
+cur(2,1):=1
+cur(0,2):=1
+cur(1,2):=1
+cur(2,2):=1
+
+REM seed a random soup across the rest of the board
+FOR y:=0 TO h-1
+FOR x:=6 TO w-1
+IF RND(1)<.28 THEN
+cur(x,y):=1
+ENDIF
+NEXT x
+NEXT y
+
+gen:=0
+REPEAT
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+
+RUN sdl("clear",0)
+FOR y:=0 TO h-1
+FOR x:=0 TO w-1
+IF cur(x,y)=1 THEN
+RUN sdl("fillbox",x*cell,y*cell,cell-1,cell-1,10+MOD(x+y+gen,5))
+ENDIF
+NEXT x
+NEXT y
+RUN sdl("present")
+
+FOR y:=0 TO h-1
+FOR x:=0 TO w-1
+n:=0
+FOR dy:=-1 TO 1
+FOR dx:=-1 TO 1
+IF dx<>0 OR dy<>0 THEN
+nx:=MOD(x+dx+w,w)
+ny:=MOD(y+dy+h,h)
+IF cur(nx,ny)=1 THEN
+n:=n+1
+ENDIF
+ENDIF
+NEXT dx
+NEXT dy
+IF cur(x,y)=1 THEN
+IF n=2 OR n=3 THEN
+nxt(x,y):=1
+ELSE
+nxt(x,y):=0
+ENDIF
+ELSE
+IF n=3 THEN
+nxt(x,y):=1
+ELSE
+nxt(x,y):=0
+ENDIF
+ENDIF
+NEXT x
+NEXT y
+
+cur:=nxt
+gen:=gen+1
+RUN sdl("delay",80)
+UNTIL quit<>0 OR key=27 OR gen>=600
+
+RUN sdl("close")
+END

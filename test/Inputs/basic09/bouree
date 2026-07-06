@@ -1,0 +1,325 @@
+TYPE card=rank:INTEGER; suit:INTEGER
+
+REM ranks: 2-10, 11=J, 12=Q, 13=K, 14=A. suits: 0=CLUBS 1=DIAMONDS 2=HEARTS 3=SPADES
+
+PROCEDURE rankname
+PARAM r:INTEGER
+PARAM name$:STRING
+IF r<=10 THEN
+name$:=STR$(r)
+ELSE
+IF r=11 THEN name$:="J" ENDIF
+IF r=12 THEN name$:="Q" ENDIF
+IF r=13 THEN name$:="K" ENDIF
+IF r=14 THEN name$:="A" ENDIF
+ENDIF
+END
+
+PROCEDURE suitname
+PARAM s:INTEGER
+PARAM name$:STRING
+IF s=0 THEN name$:="C" ENDIF
+IF s=1 THEN name$:="D" ENDIF
+IF s=2 THEN name$:="H" ENDIF
+IF s=3 THEN name$:="S" ENDIF
+END
+
+PROCEDURE cardname
+PARAM c:card
+PARAM name$:STRING
+DIM r$,s$:STRING
+RUN rankname(c.rank,r$)
+RUN suitname(c.suit,s$)
+name$:=r$+s$
+END
+
+PROCEDURE showhand
+PARAM hand(4):card
+PARAM count:INTEGER
+DIM i:INTEGER
+DIM n$:STRING
+FOR i:=0 TO count-1
+RUN cardname(hand(i),n$)
+PRINT n$;"  ";
+NEXT i
+PRINT
+END
+
+REM beats returns TRUE if a beats b, given the trump suit and the led suit
+PROCEDURE beats
+PARAM a:card
+PARAM b:card
+PARAM trump,led:INTEGER
+PARAM result:BOOLEAN
+DIM atrump,btrump:BOOLEAN
+
+atrump:=(a.suit=trump)
+btrump:=(b.suit=trump)
+
+IF atrump AND NOT btrump THEN
+result:=TRUE
+ELSE
+IF btrump AND NOT atrump THEN
+result:=FALSE
+ELSE
+IF atrump AND btrump THEN
+result:=(a.rank>b.rank)
+ELSE
+IF a.suit=led AND b.suit<>led THEN
+result:=TRUE
+ELSE
+IF b.suit=led AND a.suit<>led THEN
+result:=FALSE
+ELSE
+result:=(a.rank>b.rank)
+ENDIF
+ENDIF
+ENDIF
+ENDIF
+ENDIF
+END
+
+PROCEDURE bouree
+DIM deck(51):card
+DIM hands(2,4):card
+DIM incount(2):INTEGER
+DIM playing(2):BOOLEAN
+DIM tricks(2):INTEGER
+DIM chips(2):INTEGER
+DIM name$(2):STRING
+
+DIM i,j,k,p,top,tmp,pick:INTEGER
+DIM r,s:INTEGER
+DIM trumpcard:card
+DIM trump:INTEGER
+DIM pot,ante,hand,round,dealer:INTEGER
+DIM led,winner:INTEGER
+DIM played(2):card
+DIM best:card
+DIM ok:BOOLEAN
+DIM ans$,n$:STRING
+DIM bid:INTEGER
+DIM active:INTEGER
+DIM seed:REAL
+
+name$(0):="YOU"
+name$(1):="ANNIE"
+name$(2):="BOUDREAUX"
+chips(0):=20
+chips(1):=20
+chips(2):=20
+ante:=1
+dealer:=2
+
+PRINT "======================================="
+PRINT "  BOURRE  (Boo-Ray)  --  3 PLAYERS"
+PRINT "======================================="
+PRINT "Each hand: ante ";ante;" chip(s). Win no tricks and you get"
+PRINT "BOURRE'd -- you must match the whole pot!"
+PRINT
+
+hand:=0
+REPEAT
+hand:=hand+1
+dealer:=MOD(dealer+1,3)
+pot:=0
+FOR p:=0 TO 2
+IF chips(p)>0 THEN
+chips(p):=chips(p)-ante
+pot:=pot+ante
+ENDIF
+NEXT p
+
+REM build and shuffle a 52 card deck
+k:=0
+FOR s:=0 TO 3
+FOR r:=2 TO 14
+deck(k).rank:=r
+deck(k).suit:=s
+k:=k+1
+NEXT r
+NEXT s
+FOR i:=51 TO 1 STEP -1
+j:=INT(RND(1)*(i+1))
+trumpcard:=deck(i)
+deck(i):=deck(j)
+deck(j):=trumpcard
+NEXT i
+
+REM deal 5 cards to each of the 3 players, turn up the next card for trump
+k:=0
+FOR p:=0 TO 2
+FOR i:=0 TO 4
+hands(p,i):=deck(k)
+k:=k+1
+NEXT i
+NEXT p
+trumpcard:=deck(k)
+trump:=trumpcard.suit
+RUN cardname(trumpcard,n$)
+
+PRINT "----------------------------------------"
+PRINT "Hand ";hand;"   Dealer: ";name$(dealer);"   Pot: ";pot;" chips"
+PRINT "Trump turned up: ";n$
+PRINT
+
+PRINT "Your hand: ";
+RUN showhand(hands(0),5)
+
+active:=0
+FOR p:=0 TO 2
+playing(p):=FALSE
+tricks(p):=0
+incount(p):=5
+IF chips(p)>=0 THEN
+IF p=0 THEN
+INPUT "Play this hand (Y-N)? ",ans$
+IF ans$="Y" OR ans$="y" THEN
+playing(p):=TRUE
+ENDIF
+ELSE
+REM the computer plays whenever it holds at least one trump or a
+REM high card (Q or better), otherwise it folds
+bid:=0
+FOR i:=0 TO 4
+IF hands(p,i).suit=trump THEN bid:=bid+1 ENDIF
+IF hands(p,i).rank>=12 THEN bid:=bid+1 ENDIF
+NEXT i
+IF bid>=2 THEN
+playing(p):=TRUE
+ENDIF
+ENDIF
+ENDIF
+IF playing(p) THEN
+active:=active+1
+PRINT name$(p);" is playing this hand."
+ELSE
+PRINT name$(p);" folds."
+ENDIF
+NEXT p
+PRINT
+
+IF active>=2 THEN
+led:=-1
+FOR k:=0 TO 4
+PRINT "--- Trick ";k+1;" ---"
+FOR p:=0 TO 2
+IF playing(p) THEN
+IF p=0 THEN
+PRINT "Your hand: ";
+RUN showhand(hands(0),incount(0))
+INPUT "Card # to play (1-based)? ",pick
+pick:=pick-1
+IF pick<0 THEN pick:=0 ENDIF
+IF pick>incount(0)-1 THEN pick:=incount(0)-1 ENDIF
+ELSE
+REM the computer leads or follows with its strongest card
+pick:=0
+FOR i:=1 TO incount(p)-1
+ok:=FALSE
+RUN beats(hands(p,i),hands(p,pick),trump,led,ok)
+IF ok THEN
+pick:=i
+ENDIF
+NEXT i
+ENDIF
+
+played(p):=hands(p,pick)
+IF led=-1 THEN
+led:=played(p).suit
+ENDIF
+RUN cardname(played(p),n$)
+PRINT name$(p);" plays ";n$
+
+REM remove the played card by shifting the rest of the hand down
+FOR i:=pick TO incount(p)-2
+hands(p,i):=hands(p,i+1)
+NEXT i
+incount(p):=incount(p)-1
+ENDIF
+NEXT p
+
+winner:=-1
+FOR p:=0 TO 2
+IF playing(p) THEN
+IF winner=-1 THEN
+winner:=p
+best:=played(p)
+ELSE
+ok:=FALSE
+RUN beats(played(p),best,trump,led,ok)
+IF ok THEN
+winner:=p
+best:=played(p)
+ENDIF
+ENDIF
+ENDIF
+NEXT p
+tricks(winner):=tricks(winner)+1
+PRINT name$(winner);" takes the trick.";
+PRINT
+led:=-1
+NEXT k
+
+PRINT
+PRINT "Tricks won: ";
+FOR p:=0 TO 2
+IF playing(p) THEN
+PRINT name$(p);"=";tricks(p);"  ";
+ENDIF
+NEXT p
+PRINT
+
+FOR p:=0 TO 2
+IF playing(p) THEN
+IF tricks(p)>0 THEN
+chips(p):=chips(p)+tricks(p)*(pot/5)
+ELSE
+PRINT name$(p);" won no tricks and is BOURRE'D!";
+chips(p):=chips(p)-pot
+ENDIF
+ENDIF
+NEXT p
+ELSE
+IF active=1 THEN
+FOR p:=0 TO 2
+IF playing(p) THEN
+PRINT name$(p);" was the only player and takes the pot uncontested.";
+chips(p):=chips(p)+pot
+ENDIF
+NEXT p
+ELSE
+PRINT "Everyone folded -- pot carries over to the next hand.";
+FOR p:=0 TO 2
+chips(p):=chips(p)+ante
+NEXT p
+ENDIF
+ENDIF
+ENDIF
+PRINT
+
+PRINT "Chip counts: ";
+FOR p:=0 TO 2
+PRINT name$(p);"=";chips(p);"  ";
+NEXT p
+PRINT
+PRINT
+
+ok:=TRUE
+FOR p:=0 TO 2
+IF chips(p)<=0 THEN
+IF p=0 THEN
+PRINT "You are out of chips. Game over.";
+ok:=FALSE
+ENDIF
+ENDIF
+NEXT p
+
+UNTIL NOT ok OR hand>=50
+
+PRINT "======================================="
+PRINT "Final chip counts:"
+FOR p:=0 TO 2
+PRINT "  ";name$(p);": ";chips(p)
+NEXT p
+END

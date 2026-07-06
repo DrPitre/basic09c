@@ -592,7 +592,9 @@ void basic09_sdl_line(int x1, int y1, int x2, int y2, int color) {
 
 static std::string fileRuntimeSource() {
   return R"c(
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define BASIC09_MAX_FILES 32
@@ -751,6 +753,209 @@ int basic09_file_eof(int handle) {
     return 1;
   ungetc(ch, fp);
   return 0;
+}
+
+static void basic09_fmt_clamp_width(int *width) {
+  if (*width < 1)
+    *width = 1;
+  if (*width > 255)
+    *width = 255;
+}
+
+static void basic09_fmt_pad(char *out, int width, int justify,
+                            const char *content) {
+  int len = (int)strlen(content);
+  if (len > width) {
+    memcpy(out, content, (size_t)width);
+    out[width] = '\0';
+    return;
+  }
+  int total = width - len;
+  if (justify == '>') {
+    memset(out, ' ', (size_t)total);
+    memcpy(out + total, content, (size_t)len);
+  } else if (justify == '^') {
+    int left = total / 2;
+    int right = total - left;
+    memset(out, ' ', (size_t)left);
+    memcpy(out + left, content, (size_t)len);
+    memset(out + left + len, ' ', (size_t)right);
+  } else {
+    memcpy(out, content, (size_t)len);
+    memset(out + len, ' ', (size_t)total);
+  }
+  out[width] = '\0';
+}
+
+void basic09_fmt_str(char *out, int width, int justify, const char *value) {
+  basic09_fmt_clamp_width(&width);
+  char truncated[256];
+  size_t len = strlen(value);
+  if (len > (size_t)width)
+    len = (size_t)width;
+  memcpy(truncated, value, len);
+  truncated[len] = '\0';
+  basic09_fmt_pad(out, width, justify, truncated);
+}
+
+void basic09_fmt_bool(char *out, int width, int justify, long long value) {
+  basic09_fmt_str(out, width, justify, value ? "TRUE" : "FALSE");
+}
+
+void basic09_fmt_int(char *out, int width, int justify, long long value) {
+  basic09_fmt_clamp_width(&width);
+  int digits_width = width - 1;
+  if (digits_width < 0)
+    digits_width = 0;
+  char sign = value < 0 ? '-' : ' ';
+  unsigned long long mag =
+      value < 0 ? (unsigned long long)(-(value)) : (unsigned long long)value;
+  char digits[32];
+  snprintf(digits, sizeof(digits), "%llu", mag);
+  int dlen = (int)strlen(digits);
+  if (dlen > digits_width) {
+    memset(out, '*', (size_t)width);
+    out[width] = '\0';
+    return;
+  }
+  int pad = digits_width - dlen;
+  char buf[256];
+  int pos = 0;
+  if (justify == '<') {
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+  } else if (justify == '^') {
+    buf[pos++] = sign;
+    memset(buf + pos, '0', (size_t)pad);
+    pos += pad;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+  } else {
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+  }
+  buf[pos] = '\0';
+  memcpy(out, buf, (size_t)(pos + 1));
+}
+
+void basic09_fmt_real(char *out, int width, int precision, int justify,
+                      double value) {
+  basic09_fmt_clamp_width(&width);
+  if (precision < 0) {
+    char digits[320];
+    snprintf(digits, sizeof(digits), "%g", value);
+    basic09_fmt_pad(out, width, justify, digits);
+    return;
+  }
+  char digits[320];
+  snprintf(digits, sizeof(digits), "%.*f", precision, fabs(value));
+  int dlen = (int)strlen(digits);
+  int digits_width = width - 1;
+  if (dlen > digits_width) {
+    memset(out, '*', (size_t)width);
+    out[width] = '\0';
+    return;
+  }
+  char sign = value < 0 ? '-' : ' ';
+  int pad = digits_width - dlen;
+  char buf[320];
+  int pos = 0;
+  if (justify == '>') {
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+  } else if (justify == '^') {
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+    buf[pos++] = value < 0 ? '-' : ' ';
+  } else {
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+  }
+  buf[pos] = '\0';
+  memcpy(out, buf, (size_t)(pos + 1));
+}
+
+void basic09_fmt_exp(char *out, int width, int precision, int justify,
+                     double value) {
+  basic09_fmt_clamp_width(&width);
+  if (precision < 0)
+    precision = 3;
+  char digits[320];
+  snprintf(digits, sizeof(digits), "%.*E", precision, fabs(value));
+  char *epos = strchr(digits, 'E');
+  if (epos) {
+    int exp = atoi(epos + 1);
+    char expbuf[16];
+    snprintf(expbuf, sizeof(expbuf), "E%+03d", exp);
+    *epos = '\0';
+    strncat(digits, expbuf, sizeof(digits) - strlen(digits) - 1);
+  }
+  int dlen = (int)strlen(digits);
+  int digits_width = width - 1;
+  if (dlen > digits_width) {
+    memset(out, '*', (size_t)width);
+    out[width] = '\0';
+    return;
+  }
+  char sign = value < 0 ? '-' : ' ';
+  int pad = digits_width - dlen;
+  char buf[320];
+  int pos = 0;
+  if (justify == '>' || justify == '^') {
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+  } else {
+    buf[pos++] = sign;
+    memcpy(buf + pos, digits, (size_t)dlen);
+    pos += dlen;
+    memset(buf + pos, ' ', (size_t)pad);
+    pos += pad;
+  }
+  buf[pos] = '\0';
+  memcpy(out, buf, (size_t)(pos + 1));
+}
+
+void basic09_fmt_hex_num(char *out, int width, int justify,
+                         unsigned long long bits) {
+  basic09_fmt_clamp_width(&width);
+  if (width < 16)
+    bits &= (1ULL << (4 * width)) - 1ULL;
+  char digits[24];
+  snprintf(digits, sizeof(digits), "%0*llX", width, bits);
+  if ((int)strlen(digits) > width)
+    memmove(digits, digits + (strlen(digits) - width), (size_t)width + 1);
+  basic09_fmt_pad(out, width, justify, digits);
+}
+
+void basic09_fmt_hex_str(char *out, int width, int justify,
+                         const char *value) {
+  basic09_fmt_clamp_width(&width);
+  int maxBytes = width / 2;
+  char digits[256];
+  int pos = 0;
+  for (int i = 0; value[i] != '\0' && i < maxBytes; ++i) {
+    pos += snprintf(digits + pos, sizeof(digits) - (size_t)pos, "%02X",
+                    (unsigned char)value[i]);
+  }
+  digits[pos] = '\0';
+  basic09_fmt_pad(out, width, justify, digits);
 }
 )c";
 }

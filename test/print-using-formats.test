@@ -1,0 +1,52 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/pu %t/pu.b09
+# RUN: %t/pu | FileCheck %s --strict-whitespace --match-full-lines
+
+# CHECK:{{^}} 5678.12{{$}}
+# CHECK-NEXT:{{^}}   12.30{{$}}
+# CHECK-NEXT:{{^}}-555.90 {{$}}
+# CHECK-NEXT:{{^}}  6722.46-{{$}}
+# CHECK-NEXT:{{^}}*****{{$}}
+# CHECK-NEXT:{{^}} 10 {{$}}
+# CHECK-NEXT:{{^}}  10{{$}}
+# CHECK-NEXT:{{^}} 010{{$}}
+# CHECK-NEXT:{{^}}0064{{$}}
+# CHECK-NEXT:{{^}}FFFF{{$}}
+# CHECK-NEXT:{{^}}0000000000{{$}}
+# CHECK-NEXT:{{^}}414243  {{$}}
+# CHECK-NEXT:{{^}}HELLO   {{$}}
+# CHECK-NEXT:{{^}}   HELLO{{$}}
+# CHECK-NEXT:{{^}} HELLO  {{$}}
+# CHECK-NEXT:{{^}} 1.235E+03  {{$}}
+# CHECK-NEXT:{{^}}TRUE {{$}}
+# CHECK-NEXT:{{^}}FALSE {{$}}
+# CHECK-NEXT:{{^}}addr  03E8  data  64{{$}}
+# CHECK-NEXT:{{^}} 1  2  3  4  5 {{$}}
+
+#--- pu.b09
+PROCEDURE printusingformats
+DIM r:REAL
+PRINT USING "R8.2<",5678.123
+PRINT USING "R8.2>",12.3
+PRINT USING "R8.2<",-555.9
+PRINT USING "R10.2^",-6722.4599
+r:=9999999.0
+PRINT USING "R5.1",r
+PRINT USING "I4<",10
+PRINT USING "I4>",10
+PRINT USING "I4^",10
+PRINT USING "H4",100
+PRINT USING "H4",-1
+PRINT USING "H10",1.5
+PRINT USING "H8","ABC"
+PRINT USING "S8<","HELLO"
+PRINT USING "S8>","HELLO"
+PRINT USING "S8^","HELLO"
+PRINT USING "E12.3",1234.567
+PRINT USING "B5<",TRUE
+PRINT USING "B6",FALSE
+PRINT USING "'addr',X2,H4,X2,'data',X2,H2",1000,100
+PRINT USING "I3",1,2,3,4,5
+END

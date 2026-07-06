@@ -29,8 +29,8 @@
 # PERCENT-NEXT: Term: 5 years
 
 # USING: APR: 5 %
-# USING-NEXT: Term: 5 years
-# USING-NEXT: Money: 123.46
+# USING-NEXT: Term:  5 years
+# USING-NEXT: Money:  123.46
 # USING-NEXT: Principal:  50000.00
 
 # SHELL: shell-ok
@@ -72,7 +72,7 @@ END
 #--- using.b09
 PROCEDURE usingdemo
 PRINT USING "'APR: ',R1,' %'",5
-PRINT USING "'Term: ',I1,' years'",5
+PRINT USING "'Term: ',I2,' years'",5
 PRINT USING "'Money: ',R8.2",123.456
 PRINT USING "'Principal: ',R12.2",50000.0
 END

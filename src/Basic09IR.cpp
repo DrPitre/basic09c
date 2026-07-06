@@ -154,6 +154,7 @@ private:
   StringMap<BasicBlock *> LabelBlocks;
   std::vector<BasicBlock *> LoopExits;
   std::vector<DataValue> DataValues;
+  StringMap<size_t> DataLabelOffsets;
   std::vector<BasicBlock *> GosubReturnBlocks;
   std::vector<SwitchInst *> ReturnSwitches;
   AllocaInst *GosubStack = nullptr;
@@ -226,6 +227,7 @@ private:
     Builder.SetInsertPoint(Entry);
     Locals.clear();
     DataValues.clear();
+    DataLabelOffsets.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     DataNumbersGlobal = nullptr;
@@ -261,6 +263,7 @@ private:
     Locals.clear();
     LabelBlocks.clear();
     DataValues.clear();
+    DataLabelOffsets.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     GosubStack = nullptr;
@@ -313,6 +316,7 @@ private:
     Locals.clear();
     LabelBlocks.clear();
     DataValues.clear();
+    DataLabelOffsets.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     DataNumbersGlobal = nullptr;
@@ -338,6 +342,7 @@ private:
     Locals.clear();
     LabelBlocks.clear();
     DataValues.clear();
+    DataLabelOffsets.clear();
     GosubReturnBlocks.clear();
     ReturnSwitches.clear();
     GosubStack = nullptr;
@@ -694,6 +699,8 @@ private:
   bool collectDataStatements(const ASTNode &Node) {
     if (Node.Kind == "Data")
       return collectDataValue(Node);
+    if (Node.Kind == "Label")
+      DataLabelOffsets[normalizedLabel(Node.Text)] = DataValues.size();
     for (const std::unique_ptr<ASTNode> &Child : Node.Children)
       if (!collectDataStatements(*Child))
         return false;
@@ -785,8 +792,16 @@ private:
 
   bool emitData(const ASTNode &) { return true; }
 
-  bool emitRestore(const ASTNode &) {
-    Builder.CreateStore(ConstantInt::get(i32Ty(), 0), DataCursorSlot);
+  bool emitRestore(const ASTNode &Stmt) {
+    size_t Offset = 0;
+    if (const ASTNode *Target = firstChildKind(Stmt, "BranchTarget")) {
+      std::string Name = normalizedLabel(Target->Text);
+      auto It = DataLabelOffsets.find(Name);
+      if (It == DataLabelOffsets.end())
+        return error(*Target, "unknown branch target: " + Name);
+      Offset = It->second;
+    }
+    Builder.CreateStore(ConstantInt::get(i32Ty(), Offset), DataCursorSlot);
     return true;
   }
 
@@ -1323,6 +1338,7 @@ private:
     char Code = 0;
     int Width = 0;
     int Precision = -1;
+    char Justify = '<';
   };
 
   static PrintUsingPart printUsingLiteral(std::string Text) {
@@ -1332,12 +1348,14 @@ private:
     return Part;
   }
 
-  static PrintUsingPart printUsingField(char Code, int Width, int Precision) {
+  static PrintUsingPart printUsingField(char Code, int Width, int Precision,
+                                        char Justify) {
     PrintUsingPart Part;
     Part.Kind = PrintUsingPart::Field;
     Part.Code = std::toupper(static_cast<unsigned char>(Code));
     Part.Width = Width;
     Part.Precision = Precision;
+    Part.Justify = Justify;
     return Part;
   }
 
@@ -1374,7 +1392,8 @@ private:
         Parts.push_back(printUsingLiteral(std::string(Width, ' ')));
         continue;
       }
-      if (Code != 'H' && Code != 'I' && Code != 'R' && Code != 'S') {
+      if (Code != 'H' && Code != 'I' && Code != 'R' && Code != 'S' &&
+          Code != 'E' && Code != 'B') {
         ++I;
         continue;
       }
@@ -1395,41 +1414,15 @@ private:
         if (I > Begin)
           Precision = std::stoi(Text.substr(Begin, I - Begin));
       }
-      while (I < Text.size() && Text[I] == '<')
+      char Justify = '<';
+      if (I < Text.size() &&
+          (Text[I] == '<' || Text[I] == '>' || Text[I] == '^')) {
+        Justify = Text[I];
         ++I;
-      Parts.push_back(printUsingField(Code, Width, Precision));
+      }
+      Parts.push_back(printUsingField(Code, Width, Precision, Justify));
     }
     return Parts;
-  }
-
-  static std::string printfFormat(const PrintUsingPart &Part) {
-    std::string Format = "%";
-    if (Part.Code == 'H')
-      Format += "0";
-    int Width = Part.Width;
-    if (Part.Code == 'R' && Part.Precision >= 0 && Width > 0)
-      Width = std::max(0, Width - Part.Precision - 1);
-    if (Width > 0)
-      Format += std::to_string(Width);
-    if (Part.Precision >= 0 && Part.Code == 'R')
-      Format += "." + std::to_string(Part.Precision);
-
-    switch (Part.Code) {
-    case 'H':
-      Format += "X";
-      break;
-    case 'I':
-      Format += "d";
-      break;
-    case 'S':
-      Format += "s";
-      break;
-    case 'R':
-    default:
-      Format += Part.Precision >= 0 ? "f" : "g";
-      break;
-    }
-    return Format;
   }
 
   static std::vector<const ASTNode *> printItems(const ASTNode &Stmt) {
@@ -1440,6 +1433,61 @@ private:
     return Items;
   }
 
+  Value *printUsingScratchBuffer() {
+    AllocaInst *Buf = createEntryAlloca(
+        ArrayType::get(Type::getInt8Ty(Context), 256), "printusing.buf");
+    return stringDataPtr(Buf->getAllocatedType(), Buf);
+  }
+
+  bool emitPrintUsingField(const PrintUsingPart &Part, const ASTNode &ItemNode,
+                           Value *Buf) {
+    Value *V = emitExprChild(ItemNode);
+    if (!V)
+      return false;
+    Value *Width = ConstantInt::get(i32Ty(), Part.Width);
+    Value *Justify = ConstantInt::get(i32Ty(), Part.Justify);
+    switch (Part.Code) {
+    case 'S':
+      if (!V->getType()->isPointerTy())
+        return error(ItemNode, "S print format expects string");
+      Builder.CreateCall(getFmtStrFn(), {Buf, Width, Justify, V});
+      break;
+    case 'B':
+      Builder.CreateCall(getFmtBoolFn(),
+                         {Buf, Width, Justify, coerceScalar(V, i64Ty())});
+      break;
+    case 'I':
+      Builder.CreateCall(getFmtIntFn(),
+                         {Buf, Width, Justify, coerceScalar(V, i64Ty())});
+      break;
+    case 'E':
+      Builder.CreateCall(
+          getFmtExpFn(),
+          {Buf, Width, ConstantInt::get(i32Ty(), Part.Precision), Justify,
+           coerceScalar(V, doubleTy())});
+      break;
+    case 'H':
+      if (V->getType()->isPointerTy()) {
+        Builder.CreateCall(getFmtHexStrFn(), {Buf, Width, Justify, V});
+      } else {
+        Value *Bits = V->getType()->isDoubleTy()
+                          ? Builder.CreateBitCast(V, i64Ty())
+                          : coerceScalar(V, i64Ty());
+        Builder.CreateCall(getFmtHexNumFn(), {Buf, Width, Justify, Bits});
+      }
+      break;
+    case 'R':
+    default:
+      Builder.CreateCall(
+          getFmtRealFn(),
+          {Buf, Width, ConstantInt::get(i32Ty(), Part.Precision), Justify,
+           coerceScalar(V, doubleTy())});
+      break;
+    }
+    Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%s"), Buf});
+    return true;
+  }
+
   bool emitPrintUsing(const ASTNode &Stmt) {
     std::vector<PrintUsingPart> Parts;
     if (const ASTNode *Format = firstChildKind(Stmt, "Format"))
@@ -1447,60 +1495,39 @@ private:
         Parts = parsePrintUsingFormat(unquote(String->Text));
 
     auto Items = printItems(Stmt);
-    size_t ItemIndex = 0;
-    for (const PrintUsingPart &Part : Parts) {
-      if (Part.Kind == PrintUsingPart::Literal) {
-        Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%s"),
-                                         Builder.CreateGlobalString(Part.Text)});
-        continue;
-      }
+    bool HasField = std::any_of(
+        Parts.begin(), Parts.end(),
+        [](const PrintUsingPart &P) { return P.Kind == PrintUsingPart::Field; });
 
-      if (ItemIndex >= Items.size())
-        break;
-      Value *V = emitExprChild(*Items[ItemIndex++]);
-      if (!V)
-        return false;
-
-      switch (Part.Code) {
-      case 'H':
+    if (!HasField) {
+      for (const PrintUsingPart &Part : Parts)
         Builder.CreateCall(getPrintf(),
-                           {Builder.CreateGlobalString(printfFormat(Part)),
-                            coerceScalar(V, i32Ty())});
-        break;
-      case 'I':
-        Builder.CreateCall(getPrintf(),
-                           {Builder.CreateGlobalString(printfFormat(Part)),
-                            coerceScalar(V, i32Ty())});
-        break;
-      case 'S':
-        if (!V->getType()->isPointerTy())
-          return error(*Items[ItemIndex - 1], "S print format expects string");
-        Builder.CreateCall(getPrintf(),
-                           {Builder.CreateGlobalString(printfFormat(Part)), V});
-        break;
-      case 'R':
-      default:
-        Builder.CreateCall(getPrintf(),
-                           {Builder.CreateGlobalString(printfFormat(Part)),
-                            coerceScalar(V, Type::getDoubleTy(Context))});
-        break;
+                           {Builder.CreateGlobalString("%s"),
+                            Builder.CreateGlobalString(Part.Text)});
+    } else {
+      Value *Buf = printUsingScratchBuffer();
+      size_t ItemIndex = 0;
+      bool Stop = false;
+      while (!Stop) {
+        for (const PrintUsingPart &Part : Parts) {
+          if (Part.Kind == PrintUsingPart::Literal) {
+            Builder.CreateCall(getPrintf(),
+                               {Builder.CreateGlobalString("%s"),
+                                Builder.CreateGlobalString(Part.Text)});
+            continue;
+          }
+          if (ItemIndex >= Items.size()) {
+            Stop = true;
+            break;
+          }
+          if (!emitPrintUsingField(Part, *Items[ItemIndex++], Buf))
+            return false;
+        }
+        if (ItemIndex >= Items.size())
+          Stop = true;
       }
     }
 
-    for (; ItemIndex < Items.size(); ++ItemIndex) {
-      Value *V = emitExprChild(*Items[ItemIndex]);
-      if (!V)
-        return false;
-      if (V->getType()->isPointerTy())
-        Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%s"), V});
-      else if (V->getType()->isDoubleTy())
-        Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("%g"), V});
-      else if (V->getType()->isIntegerTy())
-        Builder.CreateCall(
-            getPrintf(),
-            {Builder.CreateGlobalString("%d"),
-             coerceScalar(V, i32Ty())});
-    }
     if (shouldPrintNewline(Stmt))
       Builder.CreateCall(getPrintf(), {Builder.CreateGlobalString("\n")});
     return true;
@@ -2037,6 +2064,20 @@ private:
         Builder.CreateStore(coerceScalar(Value, Param.ElementTy), Temp);
         return Temp;
       }
+      if (firstChildKind(Arg, "Field")) {
+        DesignatorState State;
+        if (!resolveDesignator(Arg, State))
+          return nullptr;
+        if (State.Kind != Param.Kind || State.ElemTy != Param.ElementTy) {
+          Value *Value = loadDesignatorValue(State, Arg);
+          if (!Value)
+            return nullptr;
+          AllocaInst *Temp = createEntryAlloca(Param.StorageTy, "arg.coerce.tmp");
+          Builder.CreateStore(coerceScalar(Value, Param.ElementTy), Temp);
+          return Temp;
+        }
+        return State.Ptr;
+      }
       LocalInfo *Local = getOrCreateScalarLocal(Arg.Text);
       if (!Local)
         return nullptr;
@@ -2065,11 +2106,19 @@ private:
 
   Value *emitStringArgumentAddress(const ASTNode &Arg, const ParamInfo &Param) {
     if (Arg.Kind == "Var") {
-      LocalInfo *Local = getOrCreateScalarLocal(Arg.Text);
-      if (!Local)
-        return nullptr;
-      if (Local->Kind == BasicKind::String)
-        return Local->Slot;
+      if (firstChildKind(Arg, "Field")) {
+        DesignatorState State;
+        if (!resolveDesignator(Arg, State))
+          return nullptr;
+        if (State.Kind == BasicKind::String)
+          return State.Ptr;
+      } else {
+        LocalInfo *Local = getOrCreateScalarLocal(Arg.Text);
+        if (!Local)
+          return nullptr;
+        if (Local->Kind == BasicKind::String)
+          return Local->Slot;
+      }
     }
     if (Arg.Kind == "Call") {
       auto It = Locals.find(Arg.Text);
@@ -3180,6 +3229,57 @@ private:
   FunctionCallee getFileEofFn() {
     FunctionType *FT = FunctionType::get(i32Ty(), {i32Ty()}, false);
     return M->getOrInsertFunction("basic09_file_eof", FT);
+  }
+
+  FunctionCallee getFmtStrFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context), {PtrTy, i32Ty(), i32Ty(), PtrTy}, false);
+    return M->getOrInsertFunction("basic09_fmt_str", FT);
+  }
+
+  FunctionCallee getFmtBoolFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context), {PtrTy, i32Ty(), i32Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_fmt_bool", FT);
+  }
+
+  FunctionCallee getFmtIntFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context), {PtrTy, i32Ty(), i32Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_fmt_int", FT);
+  }
+
+  FunctionCallee getFmtRealFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context),
+        {PtrTy, i32Ty(), i32Ty(), i32Ty(), doubleTy()}, false);
+    return M->getOrInsertFunction("basic09_fmt_real", FT);
+  }
+
+  FunctionCallee getFmtExpFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context),
+        {PtrTy, i32Ty(), i32Ty(), i32Ty(), doubleTy()}, false);
+    return M->getOrInsertFunction("basic09_fmt_exp", FT);
+  }
+
+  FunctionCallee getFmtHexNumFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context), {PtrTy, i32Ty(), i32Ty(), i64Ty()}, false);
+    return M->getOrInsertFunction("basic09_fmt_hex_num", FT);
+  }
+
+  FunctionCallee getFmtHexStrFn() {
+    Type *PtrTy = PointerType::getUnqual(Context);
+    FunctionType *FT = FunctionType::get(
+        Type::getVoidTy(Context), {PtrTy, i32Ty(), i32Ty(), PtrTy}, false);
+    return M->getOrInsertFunction("basic09_fmt_hex_str", FT);
   }
 
   static int64_t parseInteger(StringRef Text, unsigned Radix) {

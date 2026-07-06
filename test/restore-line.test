@@ -1,0 +1,29 @@
+# REQUIRES: host-cc
+
+# RUN: split-file %s %t
+# RUN: basic09c --compile --cc %cc -o %t/restoreline %t/restoreline.b09
+# RUN: %t/restoreline | FileCheck %s
+
+# CHECK: 1
+# CHECK-NEXT: 5
+# CHECK-NEXT: 1
+
+#--- restoreline.b09
+PROCEDURE restoreline
+DIM a,b:INTEGER
+
+DATA 1,2,3,4
+100 DATA 5,6,7,8
+
+READ a
+PRINT a
+
+RESTORE 100
+READ b
+PRINT b
+
+RESTORE
+READ a
+PRINT a
+
+END
