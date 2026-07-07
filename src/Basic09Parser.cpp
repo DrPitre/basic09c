@@ -947,10 +947,11 @@ StringRef Parser::classifyLine(const Line &L) {
   if (First == "?")
     return lineContains(L, "USING") ? "PrintUsing" : "Print";
   // A variable literally named "data" (or any other keyword-shaped
-  // identifier) reads identically to its keyword once uppercased; an
-  // assignment target is unambiguous because DATA statements never place
-  // ":=" immediately after the keyword.
-  if (L.size() >= 2 && L[1].Text == ":=")
+  // identifier) reads identically to its keyword once uppercased. No real
+  // statement keyword ever places ":=" at the top level of its own line
+  // (not even as an indexed assignment target like "rad(0):=10"), so any
+  // line containing ":=" is unambiguously an assignment.
+  if (lineContains(L, ":="))
     return "Assign";
   StringRef Kind =
       StringSwitch<StringRef>(First)

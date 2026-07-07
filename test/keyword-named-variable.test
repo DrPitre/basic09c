@@ -3,9 +3,13 @@
 # RUN: split-file %s %t
 # RUN: basic09c --compile --cc %cc -o %t/kwvar %t/kwvar.b09
 # RUN: %t/kwvar | FileCheck %s
+# RUN: basic09c --compile --cc %cc -o %t/kwarr %t/kwarr.b09
+# RUN: %t/kwarr | FileCheck %s --check-prefix=ARR
 
 # CHECK: 5
 # CHECK-NEXT: 1
+
+# ARR: 10
 
 #--- kwvar.b09
 PROCEDURE kwvar
@@ -20,4 +24,14 @@ READ x
 PRINT x
 
 DATA 1,2,3
+END
+
+#--- kwarr.b09
+PROCEDURE kwarr
+DIM rad(9):INTEGER
+
+REM an array literally named "rad" must not be misparsed as the RAD
+REM statement when the ":=" is not the token immediately after the name
+rad(0) := 10
+PRINT rad(0)
 END
