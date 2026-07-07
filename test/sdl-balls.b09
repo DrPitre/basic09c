@@ -10,84 +10,84 @@ h:=200
 n:=8
 
 FOR i:=0 TO n-1
-x(i):=40+i*30
-y(i):=10+i*8
-vx(i):=1.4+i*0.35
-vy(i):=0
-brad(i):=4+MOD(i,3)*2
-colr(i):=1+MOD(i,15)
+  x(i):=40+i*30
+  y(i):=10+i*8
+  vx(i):=1.4+i*0.35
+  vy(i):=0
+  brad(i):=4+MOD(i,3)*2
+  colr(i):=1+MOD(i,15)
 NEXT i
 
 RUN sdl("open",w,h)
 
 REPEAT
-FOR i:=0 TO n-1
-vy(i):=vy(i)+0.15
-x(i):=x(i)+vx(i)
-y(i):=y(i)+vy(i)
+  FOR i:=0 TO n-1
+    vy(i):=vy(i)+0.15
+    x(i):=x(i)+vx(i)
+    y(i):=y(i)+vy(i)
 
-IF x(i)<brad(i) THEN
-x(i):=brad(i)
-vx(i):=-vx(i)*0.9
-ENDIF
-IF x(i)>w-brad(i) THEN
-x(i):=w-brad(i)
-vx(i):=-vx(i)*0.9
-ENDIF
-IF y(i)<brad(i) THEN
-y(i):=brad(i)
-vy(i):=-vy(i)*0.9
-ENDIF
-IF y(i)>h-brad(i) THEN
-y(i):=h-brad(i)
-vy(i):=-vy(i)*0.9
-ENDIF
-NEXT i
+    IF x(i)<brad(i) THEN
+      x(i):=brad(i)
+      vx(i):=-vx(i)*0.9
+    ENDIF
+    IF x(i)>w-brad(i) THEN
+      x(i):=w-brad(i)
+      vx(i):=-vx(i)*0.9
+    ENDIF
+    IF y(i)<brad(i) THEN
+      y(i):=brad(i)
+      vy(i):=-vy(i)*0.9
+    ENDIF
+    IF y(i)>h-brad(i) THEN
+      y(i):=h-brad(i)
+      vy(i):=-vy(i)*0.9
+    ENDIF
+  NEXT i
 
-FOR i:=0 TO n-2
-FOR j:=i+1 TO n-1
-dx:=x(j)-x(i)
-dy:=y(j)-y(i)
-distsq:=dx*dx+dy*dy
-mindist:=brad(i)+brad(j)
-IF distsq>0 AND distsq<mindist*mindist THEN
-dist:=SQR(distsq)
-overlap:=(mindist-dist)/2
+  FOR i:=0 TO n-2
+    FOR j:=i+1 TO n-1
+      dx:=x(j)-x(i)
+      dy:=y(j)-y(i)
+      distsq:=dx*dx+dy*dy
+      mindist:=brad(i)+brad(j)
+      IF distsq>0 AND distsq<mindist*mindist THEN
+        dist:=SQR(distsq)
+        overlap:=(mindist-dist)/2
 
-tvx:=vx(i)
-tvy:=vy(i)
-vx(i):=vx(j)
-vy(i):=vy(j)
-vx(j):=tvx
-vy(j):=tvy
+        tvx:=vx(i)
+        tvy:=vy(i)
+        vx(i):=vx(j)
+        vy(i):=vy(j)
+        vx(j):=tvx
+        vy(j):=tvy
 
-x(i):=x(i)-dx/dist*overlap
-y(i):=y(i)-dy/dist*overlap
-x(j):=x(j)+dx/dist*overlap
-y(j):=y(j)+dy/dist*overlap
-ENDIF
-NEXT j
-NEXT i
+        x(i):=x(i)-dx/dist*overlap
+        y(i):=y(i)-dy/dist*overlap
+        x(j):=x(j)+dx/dist*overlap
+        y(j):=y(j)+dy/dist*overlap
+      ENDIF
+    NEXT j
+  NEXT i
 
-RUN sdl("clear",0)
-FOR i:=0 TO n-1
-cx:=INT(x(i))
-cy:=INT(y(i))
-r:=brad(i)
-FOR py:=-r TO r
-FOR px:=-r TO r
-IF px*px+py*py<=r*r THEN
-RUN sdl("pset",cx+px,cy+py,colr(i))
-ENDIF
-NEXT px
-NEXT py
-NEXT i
-RUN sdl("present")
+  RUN sdl("clear",0)
+  FOR i:=0 TO n-1
+    cx:=INT(x(i))
+    cy:=INT(y(i))
+    r:=brad(i)
+    FOR py:=-r TO r
+      FOR px:=-r TO r
+        IF px*px+py*py<=r*r THEN
+          RUN sdl("pset",cx+px,cy+py,colr(i))
+        ENDIF
+      NEXT px
+    NEXT py
+  NEXT i
+  RUN sdl("present")
 
-RUN sdl("poll")
-quit:=sdl("quit")
-key:=sdl("key")
-RUN sdl("delay",16)
+  RUN sdl("poll")
+  quit:=sdl("quit")
+  key:=sdl("key")
+  RUN sdl("delay",16)
 UNTIL quit<>0 OR key=27
 
 RUN sdl("close")

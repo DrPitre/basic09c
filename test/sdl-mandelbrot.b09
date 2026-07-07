@@ -17,49 +17,49 @@ RUN sdl("open",w,h)
 RUN sdl("clear",0)
 
 FOR py:=0 TO h-1
-IF aborted=0 THEN
-FOR px:=0 TO w-1
-x0:=cx+(px-halfw)/halfw*zoom
-y0:=cy+(py-halfh)/halfh*zoom*(halfh/halfw)
+  IF aborted=0 THEN
+    FOR px:=0 TO w-1
+      x0:=cx+(px-halfw)/halfw*zoom
+      y0:=cy+(py-halfh)/halfh*zoom*(halfh/halfw)
 
-x:=0
-y:=0
-i:=0
-REPEAT
-xx:=x*x
-yy:=y*y
-y:=2*x*y+y0
-x:=xx-yy+x0
-i:=i+1
-UNTIL xx+yy>4 OR i>=maxiter
+      x:=0
+      y:=0
+      i:=0
+      REPEAT
+        xx:=x*x
+        yy:=y*y
+        y:=2*x*y+y0
+        x:=xx-yy+x0
+        i:=i+1
+      UNTIL xx+yy>4 OR i>=maxiter
 
-IF i>=maxiter THEN
-color:=0
-ELSE
-color:=1+MOD(i,15)
-ENDIF
+      IF i>=maxiter THEN
+        color:=0
+      ELSE
+        color:=1+MOD(i,15)
+      ENDIF
 
-RUN sdl("pset",px,py,color)
-NEXT px
+      RUN sdl("pset",px,py,color)
+    NEXT px
 
-RUN sdl("poll")
-quit:=sdl("quit")
-key:=sdl("key")
-IF quit<>0 OR key=27 THEN
-aborted:=1
-ENDIF
-ENDIF
+    RUN sdl("poll")
+    quit:=sdl("quit")
+    key:=sdl("key")
+    IF quit<>0 OR key=27 THEN
+      aborted:=1
+    ENDIF
+  ENDIF
 NEXT py
 
 RUN sdl("present")
 
 IF aborted=0 THEN
-REPEAT
-RUN sdl("poll")
-quit:=sdl("quit")
-key:=sdl("key")
-RUN sdl("delay",33)
-UNTIL quit<>0 OR key=27
+  REPEAT
+    RUN sdl("poll")
+    quit:=sdl("quit")
+    key:=sdl("key")
+    RUN sdl("delay",33)
+  UNTIL quit<>0 OR key=27
 ENDIF
 
 RUN sdl("close")

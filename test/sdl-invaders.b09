@@ -17,69 +17,69 @@ dir:=1
 GOSUB 1000
 
 REPEAT
-RUN sdl("poll")
-quit:=sdl("quit")
-key:=sdl("key")
+  RUN sdl("poll")
+  quit:=sdl("quit")
+  key:=sdl("key")
 
-IF key=97 OR key=65 THEN
-player:=player-8
-ENDIF
-IF key=100 OR key=68 THEN
-player:=player+8
-ENDIF
-IF key=32 AND shoton=0 THEN
-shoton:=1
-shotx:=player+7
-shoty:=202
-ENDIF
-IF player<4 THEN
-player:=4
-ENDIF
-IF player>300 THEN
-player:=300
-ENDIF
+  IF key=97 OR key=65 THEN
+    player:=player-8
+  ENDIF
+  IF key=100 OR key=68 THEN
+    player:=player+8
+  ENDIF
+  IF key=32 AND shoton=0 THEN
+    shoton:=1
+    shotx:=player+7
+    shoty:=202
+  ENDIF
+  IF player<4 THEN
+    player:=4
+  ENDIF
+  IF player>300 THEN
+    player:=300
+  ENDIF
 
-IF shoton=1 THEN
-shoty:=shoty-8
-IF shoty<10 THEN
-shoton:=0
-ENDIF
-ENDIF
+  IF shoton=1 THEN
+    shoty:=shoty-8
+    IF shoty<10 THEN
+      shoton:=0
+    ENDIF
+  ENDIF
 
-IF MOD(frame,14)=0 THEN
-GOSUB 1100
-ENDIF
+  IF MOD(frame,14)=0 THEN
+    GOSUB 1100
+  ENDIF
 
-IF bombon=0 AND MOD(frame,40)=0 THEN
-GOSUB 1200
-ENDIF
-IF bombon=1 THEN
-bomby:=bomby+5
-IF bomby>224 THEN
-bombon:=0
-ENDIF
-IF bomby>=204 AND bomby<=224 AND bombx>=player AND bombx<=player+16 THEN
-lives:=lives-1
-bombon:=0
-RUN sdl("clear",0)
-RUN sdl("present")
-RUN sdl("delay",120)
-ENDIF
-ENDIF
+  IF bombon=0 AND MOD(frame,40)=0 THEN
+    GOSUB 1200
+  ENDIF
+  IF bombon=1 THEN
+    bomby:=bomby+5
+    IF bomby>224 THEN
+      bombon:=0
+    ENDIF
+    IF bomby>=204 AND bomby<=224 AND bombx>=player AND bombx<=player+16 THEN
+      lives:=lives-1
+      bombon:=0
+      RUN sdl("clear",0)
+      RUN sdl("present")
+      RUN sdl("delay",120)
+    ENDIF
+  ENDIF
 
-IF shoton=1 THEN
-GOSUB 1300
-ENDIF
+  IF shoton=1 THEN
+    GOSUB 1300
+  ENDIF
 
-IF total=0 THEN
-level:=level+1
-GOSUB 1000
-ENDIF
+  IF total=0 THEN
+    level:=level+1
+    GOSUB 1000
+  ENDIF
 
-GOSUB 1400
-RUN sdl("present")
-RUN sdl("delay",16)
-frame:=frame+1
+  GOSUB 1400
+  RUN sdl("present")
+  RUN sdl("delay",16)
+  frame:=frame+1
 UNTIL quit<>0 OR key=27 OR lives<=0 OR frame>=3600
 
 RUN sdl("close")
@@ -88,66 +88,66 @@ END "SDL Invaders"
 1000 total:=24
 dir:=level
 IF dir>4 THEN
-dir:=4
+  dir:=4
 ENDIF
 FOR row:=0 TO 3
-FOR col:=0 TO 5
-i:=row*6+col+1
-ax(i):=42+col*38
-ay(i):=32+row*20
-alive(i):=1
-NEXT col
+  FOR col:=0 TO 5
+    i:=row*6+col+1
+    ax(i):=42+col*38
+    ay(i):=32+row*20
+    alive(i):=1
+  NEXT col
 NEXT row
 RETURN
 
 1100 edge:=0
 drop:=0
 FOR i:=1 TO 24
-IF alive(i)=1 THEN
-IF ax(i)+dir*4<8 THEN
-edge:=1
-ENDIF
-IF ax(i)+dir*4>296 THEN
-edge:=1
-ENDIF
-ENDIF
+  IF alive(i)=1 THEN
+    IF ax(i)+dir*4<8 THEN
+      edge:=1
+    ENDIF
+    IF ax(i)+dir*4>296 THEN
+      edge:=1
+    ENDIF
+  ENDIF
 NEXT i
 IF edge=1 THEN
-dir:=-dir
-drop:=8
+  dir:=-dir
+  drop:=8
 ENDIF
 FOR i:=1 TO 24
-IF alive(i)=1 THEN
-ax(i):=ax(i)+dir*4
-ay(i):=ay(i)+drop
-IF ay(i)>188 THEN
-lives:=0
-ENDIF
-ENDIF
+  IF alive(i)=1 THEN
+    ax(i):=ax(i)+dir*4
+    ay(i):=ay(i)+drop
+    IF ay(i)>188 THEN
+      lives:=0
+    ENDIF
+  ENDIF
 NEXT i
 RETURN
 
 1200 FOR i:=1 TO 24
-seed:=MOD(seed+5,24)+1
-IF alive(seed)=1 THEN
-bombon:=1
-bombx:=ax(seed)+7
-bomby:=ay(seed)+12
-RETURN
-ENDIF
+  seed:=MOD(seed+5,24)+1
+  IF alive(seed)=1 THEN
+    bombon:=1
+    bombx:=ax(seed)+7
+    bomby:=ay(seed)+12
+    RETURN
+  ENDIF
 NEXT i
 RETURN
 
 1300 FOR i:=1 TO 24
-IF alive(i)=1 THEN
-IF shotx>=ax(i) AND shotx<=ax(i)+16 AND shoty>=ay(i) AND shoty<=ay(i)+12 THEN
-alive(i):=0
-shoton:=0
-score:=score+10
-total:=total-1
-RETURN
-ENDIF
-ENDIF
+  IF alive(i)=1 THEN
+    IF shotx>=ax(i) AND shotx<=ax(i)+16 AND shoty>=ay(i) AND shoty<=ay(i)+12 THEN
+      alive(i):=0
+      shoton:=0
+      score:=score+10
+      total:=total-1
+      RETURN
+    ENDIF
+  ENDIF
 NEXT i
 RETURN
 
@@ -155,33 +155,33 @@ RETURN
 RUN sdl("line",0,226,319,226,8)
 
 FOR i:=1 TO lives
-RUN sdl("fillbox",8+i*12,8,8,8,10)
+  RUN sdl("fillbox",8+i*12,8,8,8,10)
 NEXT i
 
 FOR i:=1 TO level
-IF i<12 THEN
-RUN sdl("fillbox",260+i*4,8,3,8,14)
-ENDIF
+  IF i<12 THEN
+    RUN sdl("fillbox",260+i*4,8,3,8,14)
+  ENDIF
 NEXT i
 
 FOR i:=1 TO score/10
-IF i<60 THEN
-RUN sdl("fillbox",8+i*4,20,3,4,11)
-ENDIF
+  IF i<60 THEN
+    RUN sdl("fillbox",8+i*4,20,3,4,11)
+  ENDIF
 NEXT i
 
 FOR i:=1 TO 24
-IF alive(i)=1 THEN
-GOSUB 1500
-ENDIF
+  IF alive(i)=1 THEN
+    GOSUB 1500
+  ENDIF
 NEXT i
 
 IF shoton=1 THEN
-RUN sdl("fillbox",shotx,shoty,2,8,15)
+  RUN sdl("fillbox",shotx,shoty,2,8,15)
 ENDIF
 
 IF bombon=1 THEN
-RUN sdl("fillbox",bombx,bomby,3,7,12)
+  RUN sdl("fillbox",bombx,bomby,3,7,12)
 ENDIF
 
 RUN sdl("fillbox",player,212,18,6,10)
