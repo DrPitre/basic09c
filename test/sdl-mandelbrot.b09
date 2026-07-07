@@ -1,0 +1,66 @@
+PROCEDURE sdlmandelbrot
+DIM w,h:INTEGER
+DIM px,py,i,maxiter,color,key,quit,aborted:INTEGER
+DIM x0,y0,x,y,xx,yy,cx,cy,zoom,halfw,halfh:REAL
+
+w:=320
+h:=200
+maxiter:=48
+cx:=-0.5
+cy:=0
+zoom:=1.6
+aborted:=0
+halfw:=w/2
+halfh:=h/2
+
+RUN sdl("open",w,h)
+RUN sdl("clear",0)
+
+FOR py:=0 TO h-1
+IF aborted=0 THEN
+FOR px:=0 TO w-1
+x0:=cx+(px-halfw)/halfw*zoom
+y0:=cy+(py-halfh)/halfh*zoom*(halfh/halfw)
+
+x:=0
+y:=0
+i:=0
+REPEAT
+xx:=x*x
+yy:=y*y
+y:=2*x*y+y0
+x:=xx-yy+x0
+i:=i+1
+UNTIL xx+yy>4 OR i>=maxiter
+
+IF i>=maxiter THEN
+color:=0
+ELSE
+color:=1+MOD(i,15)
+ENDIF
+
+RUN sdl("pset",px,py,color)
+NEXT px
+
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+IF quit<>0 OR key=27 THEN
+aborted:=1
+ENDIF
+ENDIF
+NEXT py
+
+RUN sdl("present")
+
+IF aborted=0 THEN
+REPEAT
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("delay",33)
+UNTIL quit<>0 OR key=27
+ENDIF
+
+RUN sdl("close")
+END
