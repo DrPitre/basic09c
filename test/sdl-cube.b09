@@ -1,0 +1,79 @@
+PROCEDURE sdlcube
+DIM w,h:INTEGER
+DIM vx(7),vy(7),vz(7):REAL
+DIM rx(7),ry(7):INTEGER
+DIM e1(11),e2(11):INTEGER
+DIM i,n,a,b,frame,key,quit:INTEGER
+DIM ax,ay,cx0,cy0,sx0,sy0:REAL
+DIM x1,y1,z1,x2,y2,z2:REAL
+DIM px,py,dist:REAL
+
+w:=320
+h:=200
+frame:=0
+
+DATA -1,-1,-1
+DATA 1,-1,-1
+DATA 1,1,-1
+DATA -1,1,-1
+DATA -1,-1,1
+DATA 1,-1,1
+DATA 1,1,1
+DATA -1,1,1
+DATA 0,1,1,2,2,3,3,0
+DATA 4,5,5,6,6,7,7,4
+DATA 0,4,1,5,2,6,3,7
+
+FOR i:=0 TO 7
+READ vx(i)
+READ vy(i)
+READ vz(i)
+NEXT i
+
+FOR i:=0 TO 11
+READ e1(i)
+READ e2(i)
+NEXT i
+
+RUN sdl("open",w,h)
+
+REPEAT
+ax:=frame*0.006
+ay:=frame*0.009
+cx0:=COS(ax)
+sx0:=SIN(ax)
+cy0:=COS(ay)
+sy0:=SIN(ay)
+
+FOR i:=0 TO 7
+y1:=vy(i)*cx0-vz(i)*sx0
+z1:=vy(i)*sx0+vz(i)*cx0
+x1:=vx(i)
+x2:=x1*cy0+z1*sy0
+z2:=-x1*sy0+z1*cy0
+y2:=y1
+
+dist:=4
+px:=x2/(dist-z2)*w/3+w/2
+py:=y2/(dist-z2)*w/3+h/2
+rx(i):=INT(px)
+ry(i):=INT(py)
+NEXT i
+
+RUN sdl("clear",0)
+FOR n:=0 TO 11
+a:=e1(n)
+b:=e2(n)
+RUN sdl("line",rx(a),ry(a),rx(b),ry(b),1+MOD(n,15))
+NEXT n
+RUN sdl("present")
+
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("delay",16)
+frame:=frame+1
+UNTIL quit<>0 OR key=27
+
+RUN sdl("close")
+END
