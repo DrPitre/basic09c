@@ -11,6 +11,13 @@ This project is intentionally maintained outside the LLVM monorepo. It consumes
 LLVM through LLVM's CMake package and links against LLVM as a normal external
 dependency.
 
+## Download
+
+Prebuilt binaries are published on the
+[Releases page](https://github.com/DrPitre/basic09c/releases). The
+[v0.1.0 release](https://github.com/DrPitre/basic09c/releases/tag/v0.1.0)
+includes a self-contained macOS (arm64) build — no LLVM install required.
+
 ## Build
 
 Point CMake at an LLVM build or install tree that provides `LLVMConfig.cmake`:
