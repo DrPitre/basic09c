@@ -5,7 +5,7 @@
 # RUN:   --mame %mame \
 # RUN:   --os9 %os9 \
 # RUN:   --basic09c basic09c \
-# RUN:   --cc clang \
+# RUN:   --cc %cc \
 # RUN:   --disk %S/Inputs/l2_coco3_basic09.dsk \
 # RUN:   --source %S/Inputs/basic09/fibonacci \
 # RUN:   --source-name fibonacci \
