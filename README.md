@@ -105,6 +105,22 @@ build/bin/basic09c --compile --sdl --cc clang -o sdl-invaders test/sdl-invaders.
 
 Controls are `A`/`D` to move, Space to fire, and Escape to quit.
 
+### Demos
+
+| | |
+|---|---|
+| ![Mandelbrot](test/screenshots/sdl-mandelbrot.png) `test/sdl-mandelbrot.b09` — zoomable Mandelbrot set fractal | ![Fire](test/screenshots/sdl-fire.png) `test/sdl-fire.b09` — classic Doom-style fire simulation |
+| ![Plasma](test/screenshots/sdl-plasma.png) `test/sdl-plasma.b09` — animated sine-wave plasma | ![Starfield](test/screenshots/sdl-starfield.png) `test/sdl-starfield.b09` — 3D perspective starfield |
+| ![Bouncing balls](test/screenshots/sdl-balls.png) `test/sdl-balls.b09` — physics demo with gravity and elastic collisions | ![Rotating cube](test/screenshots/sdl-cube.png) `test/sdl-cube.b09` — rotating wireframe cube |
+| ![Conway's Life](test/screenshots/sdl-life.png) `test/sdl-life.b09` — Conway's Game of Life | ![Invaders](test/screenshots/sdl-invaders.png) `test/sdl-invaders.b09` — Space Invaders clone |
+
+Each of these builds and runs the same way:
+
+```sh
+build/bin/basic09c --compile --sdl --cc clang -o sdl-fire test/sdl-fire.b09
+./sdl-fire
+```
+
 The lit tests use `SDL_VIDEODRIVER=dummy` for headless smoke coverage, so those
 test runs intentionally do not display a window.
 
