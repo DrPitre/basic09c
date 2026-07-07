@@ -15,6 +15,7 @@
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-cube %S/sdl-cube.b09
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-balls %S/sdl-balls.b09
 # RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-fire %S/sdl-fire.b09
+# RUN: basic09c --compile --sdl --cc %cc -o %t/sdl-starfield %S/sdl-starfield.b09
 
 # NO-SDL: source uses SDL runtime calls; pass --sdl with --compile
 

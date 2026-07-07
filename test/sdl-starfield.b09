@@ -1,0 +1,58 @@
+PROCEDURE sdlstarfield
+DIM w,h,n,i,key,quit:INTEGER
+DIM halfw,halfh,speed:REAL
+DIM sx(399),sy(399),sz(399):REAL
+DIM px,py,color:INTEGER
+
+w:=320
+h:=200
+n:=400
+halfw:=w/2
+halfh:=h/2
+speed:=4
+
+FOR i:=0 TO n-1
+sx(i):=RND(1)*w-halfw
+sy(i):=RND(1)*h-halfh
+sz(i):=RND(1)*w+1
+NEXT i
+
+RUN sdl("open",w,h)
+
+REPEAT
+RUN sdl("clear",0)
+
+FOR i:=0 TO n-1
+sz(i):=sz(i)-speed
+IF sz(i)<=1 THEN
+sx(i):=RND(1)*w-halfw
+sy(i):=RND(1)*h-halfh
+sz(i):=w
+ENDIF
+
+px:=INT(sx(i)/sz(i)*w+halfw)
+py:=INT(sy(i)/sz(i)*w+halfh)
+
+IF px>=0 AND px<w AND py>=0 AND py<h THEN
+color:=1
+IF sz(i)<w/3 THEN
+color:=15
+ELSE
+IF sz(i)<w*2/3 THEN
+color:=7
+ENDIF
+ENDIF
+RUN sdl("pset",px,py,color)
+ENDIF
+NEXT i
+
+RUN sdl("present")
+
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("delay",16)
+UNTIL quit<>0 OR key=27
+
+RUN sdl("close")
+END
