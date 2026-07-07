@@ -18,6 +18,14 @@ Prebuilt binaries are published on the
 [v0.1.0 release](https://github.com/DrPitre/basic09c/releases/tag/v0.1.0)
 includes a self-contained macOS (arm64) build — no LLVM install required.
 
+macOS quarantines files downloaded from a browser, which blocks the bundled
+binary and libraries from running. After extracting the archive, clear the
+quarantine flag once:
+
+```sh
+xattr -dr com.apple.quarantine basic09c-v0.1.0-macos-arm64
+```
+
 ## Build
 
 Point CMake at an LLVM build or install tree that provides `LLVMConfig.cmake`:
