@@ -1,0 +1,67 @@
+PROCEDURE sdlfire
+DIM w,h,scale,gw,gh,srcw,srcstart:INTEGER
+DIM px,py,srcx,srcy,decay,spread,heat,key,quit,frame:INTEGER
+DIM fire(79,89):INTEGER
+DIM colr(8):INTEGER
+
+w:=320
+h:=360
+scale:=4
+gw:=80
+gh:=90
+srcw:=14
+srcstart:=(gw-srcw)/2
+
+colr(0):=0
+colr(1):=0
+colr(2):=4
+colr(3):=4
+colr(4):=12
+colr(5):=6
+colr(6):=6
+colr(7):=14
+colr(8):=15
+
+RUN sdl("open",w,h)
+
+REPEAT
+FOR px:=0 TO gw-1
+fire(px,gh-1):=0
+NEXT px
+FOR px:=srcstart TO srcstart+srcw-1
+fire(px,gh-1):=8-INT(RND(2))
+NEXT px
+
+FOR py:=0 TO gh-2
+FOR px:=0 TO gw-1
+srcy:=py+1
+decay:=0
+IF RND(1)<0.12 THEN
+decay:=1
+ENDIF
+spread:=INT(RND(3))-1
+srcx:=MOD(px+spread+gw,gw)
+heat:=fire(srcx,srcy)-decay
+IF heat<0 THEN
+heat:=0
+ENDIF
+fire(px,py):=heat
+NEXT px
+NEXT py
+
+FOR py:=0 TO gh-1
+FOR px:=0 TO gw-1
+RUN sdl("fillbox",px*scale,py*scale,scale,scale,colr(fire(px,py)))
+NEXT px
+NEXT py
+RUN sdl("present")
+
+RUN sdl("poll")
+quit:=sdl("quit")
+key:=sdl("key")
+RUN sdl("delay",30)
+frame:=frame+1
+UNTIL quit<>0 OR key=27
+
+RUN sdl("close")
+END
